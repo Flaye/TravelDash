@@ -65,7 +65,7 @@ const tripData = {
   ],
   itinerary: [],
   mapPoints: [],
-  routes: [],
+  routes: [], // Routes are derived from mapPoints, might need manual update or a more complex backend
   hotels: [],
   transports: [],
   expenses: [],
@@ -354,32 +354,13 @@ function showFormModal(title, category, item = null) {
       },
     ];
   } else if (category === "mapPoints") {
+    // Changed to city_name for geocoding
     fields = [
       {
         name: "name",
         label: "Nom de la ville",
         type: "text",
         value: item ? item.name : "",
-      },
-      {
-        name: "lat",
-        label: "Latitude",
-        type: "number",
-        value: item ? item.lat : "",
-        step: "any",
-      },
-      {
-        name: "lon",
-        label: "Longitude",
-        type: "number",
-        value: item ? item.lon : "",
-        step: "any",
-      },
-      {
-        name: "type",
-        label: "Type (origin/stop)",
-        type: "text",
-        value: item ? item.type : "",
       },
       {
         name: "arrivalDate",
@@ -393,6 +374,9 @@ function showFormModal(title, category, item = null) {
         type: "date",
         value: item ? item.departureDate : "",
       },
+      // Hidden fields for lat/lon, populated by geocoding
+      { name: "lat", type: "hidden", value: item ? item.lat : "" },
+      { name: "lon", type: "hidden", value: item ? item.lon : "" },
     ];
   } else if (category === "expenses") {
     fields = [
@@ -467,9 +451,53 @@ function showFormModal(title, category, item = null) {
     label.textContent = field.label;
     label.classList.add("mb-1", "font-medium", "text-stone-700");
     const input = createFormField(field);
-    div.appendChild(label);
-    div.appendChild(input);
-    dynamicForm.appendChild(div);
+
+    // Special handling for city_name field with datalist
+    if (category === "mapPoints" && field.name === "name") {
+      input.setAttribute("list", "city-suggestions");
+      input.setAttribute(
+        "placeholder",
+        "Commencez à taper le nom de la ville..."
+      );
+      input.addEventListener(
+        "input",
+        debounce(async (e) => {
+          const query = e.target.value;
+          if (query.length > 2) {
+            await searchCitiesForAutocomplete(query);
+          } else {
+            document.getElementById("city-suggestions").innerHTML = "";
+          }
+        }, 300)
+      );
+      // Add a status indicator for geocoding
+      const statusSpan = document.createElement("span");
+      statusSpan.id = "city-geocode-status";
+      statusSpan.classList.add("text-sm", "text-stone-500", "mt-1");
+      div.appendChild(label);
+      div.appendChild(input);
+      div.appendChild(statusSpan);
+      dynamicForm.appendChild(div);
+
+      // Add the datalist element
+      const dataList = document.createElement("datalist");
+      dataList.id = "city-suggestions";
+      dynamicForm.appendChild(dataList);
+
+      // Add event listener for when a suggestion is selected or input is blurred
+      input.addEventListener("change", async (e) => {
+        const selectedCityName = e.target.value;
+        await geocodeCityOnDemand(selectedCityName);
+      });
+      input.addEventListener("blur", async (e) => {
+        const blurredCityName = e.target.value;
+        await geocodeCityOnDemand(blurredCityName);
+      });
+    } else {
+      div.appendChild(label);
+      div.appendChild(input);
+      dynamicForm.appendChild(div);
+    }
   });
 
   // Specific logic for Hotels price calculation
@@ -564,6 +592,120 @@ function hideFormModal() {
 closeFormModalBtn.addEventListener("click", hideFormModal);
 cancelFormBtn.addEventListener("click", hideFormModal);
 
+// --- Geocoding Functions ---
+let geocodeTimeout;
+function debounce(func, delay) {
+  return function (...args) {
+    const context = this;
+    clearTimeout(geocodeTimeout);
+    geocodeTimeout = setTimeout(() => func.apply(context, args), delay);
+  };
+}
+
+/**
+ * Searches for city suggestions using Nominatim API for autocompletion.
+ * @param {string} query - The city name query.
+ */
+async function searchCitiesForAutocomplete(query) {
+  const datalist = document.getElementById("city-suggestions");
+  const statusSpan = document.getElementById("city-geocode-status");
+  datalist.innerHTML = ""; // Clear previous suggestions
+  statusSpan.textContent = "Recherche...";
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+        query
+      )}&format=json&limit=5&addressdetails=1`
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+
+    if (data.length > 0) {
+      data.forEach((place) => {
+        // Prioritize city, town, village, then fallback to display_name
+        let displayName = place.display_name;
+        if (
+          place.address &&
+          (place.address.city || place.address.town || place.address.village)
+        ) {
+          displayName =
+            place.address.city || place.address.town || place.address.village;
+          if (place.address.country) {
+            displayName += `, ${place.address.country}`;
+          }
+        }
+        const option = document.createElement("option");
+        option.value = displayName; // Display name for the user
+        option.dataset.lat = place.lat;
+        option.dataset.lon = place.lon;
+        datalist.appendChild(option);
+      });
+      statusSpan.textContent = "";
+    } else {
+      statusSpan.textContent = "Aucune suggestion trouvée.";
+    }
+  } catch (error) {
+    console.error("Error fetching city suggestions:", error);
+    statusSpan.textContent = "Erreur de recherche.";
+  }
+}
+
+/**
+ * Geocodes a city name to get its latitude and longitude.
+ * Updates hidden form fields and displays status.
+ * @param {string} cityName - The name of the city to geocode.
+ * @returns {Promise<boolean>} True if successful, false otherwise.
+ */
+async function geocodeCityOnDemand(cityName) {
+  const latInput = dynamicForm.querySelector("#lat");
+  const lonInput = dynamicForm.querySelector("#lon");
+  const statusSpan = document.getElementById("city-geocode-status");
+
+  if (!cityName) {
+    latInput.value = "";
+    lonInput.value = "";
+    statusSpan.textContent = "";
+    return false;
+  }
+
+  statusSpan.textContent = "Géocodage...";
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+        cityName
+      )}&format=json&limit=1`
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+
+    if (data.length > 0) {
+      latInput.value = data[0].lat;
+      lonInput.value = data[0].lon;
+      statusSpan.textContent = `Coordonnées trouvées: Lat ${parseFloat(
+        data[0].lat
+      ).toFixed(2)}, Lon ${parseFloat(data[0].lon).toFixed(2)}`;
+      return true;
+    } else {
+      latInput.value = "";
+      lonInput.value = "";
+      statusSpan.textContent =
+        "Ville non trouvée. Veuillez vérifier l'orthographe.";
+      return false;
+    }
+  } catch (error) {
+    console.error("Error geocoding city:", error);
+    latInput.value = "";
+    lonInput.value = "";
+    statusSpan.textContent = "Erreur de géocodage.";
+    return false;
+  }
+}
+
 // Event listener for form submission
 dynamicForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -573,9 +715,30 @@ dynamicForm.addEventListener("submit", async (e) => {
     itemData[key] = value;
   }
 
+  // Special handling for mapPoints: ensure lat/lon are populated
+  if (currentCategory === "mapPoints") {
+    const latInput = dynamicForm.querySelector("#lat");
+    const lonInput = dynamicForm.querySelector("#lon");
+
+    // If lat/lon are not already set (e.g., from blur/change event or if user typed quickly)
+    if (!latInput.value || !lonInput.value) {
+      const geocoded = await geocodeCityOnDemand(itemData.name);
+      if (!geocoded) {
+        alert(
+          "Impossible de trouver les coordonnées pour la ville. Veuillez réessayer."
+        );
+        return; // Stop submission if geocoding failed
+      }
+      itemData.lat = latInput.value;
+      itemData.lon = lonInput.value;
+    } else {
+      itemData.lat = latInput.value;
+      itemData.lon = lonInput.value;
+    }
+  }
+
   if (currentCategory !== "newTrip" && !tripData.id) {
     console.error("No trip selected. Cannot perform action.");
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
     hideFormModal();
     return;
   }
@@ -613,16 +776,13 @@ dynamicForm.addEventListener("submit", async (e) => {
     const result = await response.json();
     console.log("Opération réussie:", result);
 
-    // After any successful operation, reload the current trip data
     if (currentCategory === "newTrip") {
-      // If a new trip was created, set it as the current trip and reload dashboard
       window.location.href = `/dashboard?trip_id=${result.tripId}`;
     } else {
-      await loadCurrentTripData(); // Reload data for the current trip
+      await loadCurrentTripData();
     }
   } catch (error) {
     console.error("Error saving data:", error);
-    alert(`Erreur lors de la sauvegarde: ${error.message}`);
   } finally {
     hideFormModal();
   }
@@ -630,7 +790,6 @@ dynamicForm.addEventListener("submit", async (e) => {
 
 /**
  * Loads the current trip data from the Flask backend and updates the UI.
- * This function replaces the client-side loadTripData.
  */
 async function loadCurrentTripData() {
   if (!tripData.id) {
@@ -638,11 +797,12 @@ async function loadCurrentTripData() {
     document.getElementById("mainContent").classList.add("hidden");
     document.getElementById("tripStatusMessage").textContent =
       "Veuillez sélectionner ou créer un voyage.";
+    toggleDashboardInteractivity(false); // Disable interactivity
     return;
   }
 
   try {
-    const response = await fetch(`/api/trips/${tripData.id}/all_data`); // Assuming Flask has an endpoint for all trip data
+    const response = await fetch(`/api/trips/${tripData.id}/all_data`);
     if (!response.ok) {
       const errorData = await response.json();
       throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
@@ -666,9 +826,10 @@ async function loadCurrentTripData() {
     ).textContent = `Voyage chargé: ${tripData.name}`;
     document.getElementById("mainContent").classList.remove("hidden");
 
-    renderAllSections(); // Re-render all UI components
+    renderAllSections();
+    toggleDashboardInteractivity(true); // Enable interactivity
 
-    // Re-initialize mini-map if it exists
+    // Re-initialize mini-map if it exists or create it
     if (miniMap) {
       destroyLeafletMap(miniMap);
     }
@@ -680,12 +841,12 @@ async function loadCurrentTripData() {
     if (miniMap) miniMap.invalidateSize();
   } catch (error) {
     console.error("Error loading trip data from Flask API:", error);
-    alert(`Erreur lors du chargement des données du voyage: ${error.message}`);
     tripData.clear();
     renderAllSections();
     document.getElementById("mainContent").classList.add("hidden");
     document.getElementById("tripStatusMessage").textContent =
       "Erreur lors du chargement du voyage. Veuillez réessayer ou créer un nouveau voyage.";
+    toggleDashboardInteractivity(false); // Disable interactivity on error
   }
 }
 
@@ -733,14 +894,31 @@ function initializeLeafletMap(mapId, initialLat, initialLon, initialZoom) {
             <div>Départ: <span class="font-semibold">${city.departureDate}</span></div>
             ${hotelLinkHtml}
         `;
-    L.marker([city.lat, city.lon]).addTo(mapInstance).bindPopup(popupContent);
+    // Ensure lat and lon exist before adding marker
+    if (city.lat && city.lon) {
+      L.marker([city.lat, city.lon]).addTo(mapInstance).bindPopup(popupContent);
+    } else {
+      console.warn(
+        `Map point "${city.name}" missing lat/lon, cannot add marker.`
+      );
+    }
   });
 
+  // Note: tripData.routes is currently static. If routes are dynamic,
+  // they would need to be fetched or generated based on mapPoints.
+  // For now, this part remains as a placeholder or requires manual route data.
   tripData.routes.forEach((routeInfo) => {
     const fromCity = tripData.mapPoints.find((p) => p.name === routeInfo.from);
     const toCity = tripData.mapPoints.find((p) => p.name === routeInfo.to);
 
-    if (fromCity && toCity) {
+    if (
+      fromCity &&
+      toCity &&
+      fromCity.lat &&
+      fromCity.lon &&
+      toCity.lat &&
+      toCity.lon
+    ) {
       const polyline = L.polyline(
         [
           [fromCity.lat, fromCity.lon],
@@ -750,9 +928,10 @@ function initializeLeafletMap(mapId, initialLat, initialLon, initialZoom) {
       ).addTo(mapInstance);
 
       let googleMapsLinkHtml = "";
+      // Find transport by ID
       const transport = tripData.transports.find(
         (t) => t.id === routeInfo.transportId
-      ); // Find by ID now
+      );
       if (
         transport &&
         (transport.type === "Train" || transport.type === "Voiture")
@@ -777,6 +956,10 @@ function initializeLeafletMap(mapId, initialLat, initialLon, initialZoom) {
                 <a href="#" class="text-blue-600 hover:text-blue-800 underline" onclick="navigateAndCloseModal('transports');">Voir transports</a>
             `;
       polyline.bindPopup(popupContent);
+    } else {
+      console.warn(
+        `Route from ${routeInfo.from} to ${routeInfo.to} missing coordinates for one or both cities.`
+      );
     }
   });
 
@@ -1195,11 +1378,22 @@ function renderItineraries() {
       html += `
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
                     <h3 class="text-lg font-bold">${p.name}</h3>
-                    <p class="text-sm text-stone-500">Arrivée: ${p.arrivalDate}</p>
-                    <p class="text-sm text-stone-500">Départ: ${p.departureDate}</p>
+                    <p class="text-sm text-stone-500">Arrivée: ${
+                      p.arrivalDate
+                    }</p>
+                    <p class="text-sm text-stone-500">Départ: ${
+                      p.departureDate
+                    }</p>
+                    <p class="text-sm text-stone-500">Lat: ${
+                      p.lat ? parseFloat(p.lat).toFixed(4) : "N/A"
+                    }, Lon: ${p.lon ? parseFloat(p.lon).toFixed(4) : "N/A"}</p>
                     <div class="mt-4 flex justify-end space-x-2">
-                        <button data-id="${p.id}" data-category="mapPoints" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600">Modifier</button>
-                        <button data-id="${p.id}" data-category="mapPoints" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
+                        <button data-id="${
+                          p.id
+                        }" data-category="mapPoints" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600">Modifier</button>
+                        <button data-id="${
+                          p.id
+                        }" data-category="mapPoints" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
                     </div>
                 </div>
             `;
@@ -1259,11 +1453,44 @@ function renderAllSections() {
   renderExpenses();
 }
 
+/**
+ * Toggles the interactivity of dashboard elements based on whether a trip is loaded.
+ * @param {boolean} enable - True to enable, false to disable.
+ */
+function toggleDashboardInteractivity(enable) {
+  const mainContent = document.getElementById("mainContent");
+  const tabButtons = document.querySelectorAll(".tab-button");
+  const addButtons = document.querySelectorAll(
+    "#addHotelBtn, #addTransportBtn, #addItineraryBtn, #addExpenseBtn, #addOverviewItineraryBtn, #openMapModal"
+  );
+
+  if (enable) {
+    mainContent.classList.remove("pointer-events-none", "opacity-50");
+    tabButtons.forEach((btn) => {
+      btn.classList.remove("pointer-events-none", "opacity-50");
+      btn.removeAttribute("disabled");
+    });
+    addButtons.forEach((btn) => {
+      btn.classList.remove("pointer-events-none", "opacity-50");
+      btn.removeAttribute("disabled");
+    });
+  } else {
+    mainContent.classList.add("pointer-events-none", "opacity-50");
+    tabButtons.forEach((btn) => {
+      btn.classList.add("pointer-events-none", "opacity-50");
+      btn.setAttribute("disabled", "true");
+    });
+    addButtons.forEach((btn) => {
+      btn.classList.add("pointer-events-none", "opacity-50");
+      btn.setAttribute("disabled", "true");
+    });
+  }
+}
+
 // Delegate event listeners for "Modifier" and "Supprimer" buttons
 document.addEventListener("click", async (e) => {
   if (!tripData.id) {
     console.error("No trip selected. Cannot perform action.");
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
     return;
   }
 
@@ -1288,7 +1515,6 @@ document.addEventListener("click", async (e) => {
       );
     } else {
       console.error("Item not found for editing:", id, category);
-      alert("Élément non trouvé pour modification.");
     }
   } else if (e.target.closest(".delete-btn")) {
     const btn = e.target.closest(".delete-btn");
@@ -1310,50 +1536,29 @@ document.addEventListener("click", async (e) => {
       }
 
       console.log(`Document ${id} deleted from ${category}.`);
-      await loadCurrentTripData(); // Reload all data after deletion
+      await loadCurrentTripData();
     } catch (error) {
       console.error(`Error deleting document ${id} from ${category}:`, error);
-      alert(`Erreur lors de la suppression: ${error.message}`);
     }
   }
 });
 
 // Add event listeners for "Add" buttons
 document.getElementById("addHotelBtn").addEventListener("click", () => {
-  if (!tripData.id) {
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
-    return;
-  }
   showFormModal("Ajouter un nouvel hôtel", "hotels");
 });
 document.getElementById("addTransportBtn").addEventListener("click", () => {
-  if (!tripData.id) {
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
-    return;
-  }
   showFormModal("Ajouter un nouveau transport", "transports");
 });
 document.getElementById("addItineraryBtn").addEventListener("click", () => {
-  if (!tripData.id) {
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
-    return;
-  }
   showFormModal("Ajouter une nouvelle étape", "mapPoints");
 });
 document.getElementById("addExpenseBtn").addEventListener("click", () => {
-  if (!tripData.id) {
-    alert("Veuillez sélectionner ou créer un voyage d'abord.");
-    return;
-  }
   showFormModal("Ajouter une nouvelle dépense", "expenses");
 });
 document
   .getElementById("addOverviewItineraryBtn")
   .addEventListener("click", () => {
-    if (!tripData.id) {
-      alert("Veuillez sélectionner ou créer un voyage d'abord.");
-      return;
-    }
     showFormModal("Ajouter une étape à l'itinéraire principal", "itinerary");
   });
 
@@ -1365,7 +1570,7 @@ document.getElementById("createNewTripBtn").addEventListener("click", () => {
 document.getElementById("tripSelect").addEventListener("change", async (e) => {
   const selectedTripId = e.target.value;
   if (selectedTripId) {
-    tripData.id = selectedTripId; // Update the global tripId
+    tripData.id = selectedTripId;
     await loadCurrentTripData();
   } else {
     tripData.clear();
@@ -1373,6 +1578,7 @@ document.getElementById("tripSelect").addEventListener("change", async (e) => {
     document.getElementById("tripStatusMessage").textContent =
       "Veuillez sélectionner ou créer un voyage.";
     document.getElementById("mainContent").classList.add("hidden");
+    toggleDashboardInteractivity(false);
   }
 });
 
@@ -1381,46 +1587,54 @@ document.addEventListener("DOMContentLoaded", async function () {
   setupTabs();
   setupWeatherNavigation();
 
-  // Check if a trip_id is present in the URL (e.g., after creating a new trip or direct link)
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialTripId = urlParams.get("trip_id");
+  const mainContentDiv = document.getElementById("mainContent");
+  const initialTripIdFromData = mainContentDiv.dataset.currentTripId;
+  const currentTripDataFromFlask = mainContentDiv.dataset.currentTripData
+    ? JSON.parse(mainContentDiv.dataset.currentTripData)
+    : null;
 
-  if (initialTripId) {
-    tripData.id = initialTripId;
-    await loadCurrentTripData();
-  } else {
-    // If no trip_id in URL, let Flask handle the initial load (which might redirect or show empty state)
-    // The Flask route /dashboard already loads the first trip if available.
-    // We just need to ensure the client-side tripData is synced.
-    // For simplicity in this Flask migration, we'll rely on Flask to pass initial data.
-    // If current_trip_data is passed from Flask, initialize tripData with it.
-    const currentTripDataFromFlask = JSON.parse(
-      document.getElementById("mainContent").dataset.currentTripData || "null"
-    );
-    if (currentTripDataFromFlask) {
-      Object.assign(tripData, currentTripDataFromFlask);
-      tripData.id = currentTripDataFromFlask.id; // Ensure ID is set
-      renderAllSections();
-      const initialLat =
-        tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lat : 41.9028;
-      const initialLon =
-        tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
-      miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
-      if (miniMap) miniMap.invalidateSize();
-    } else {
-      // No trip data from Flask, hide main content
-      document.getElementById("mainContent").classList.add("hidden");
-      document.getElementById("tripStatusMessage").textContent =
-        "Aucun voyage trouvé. Créez un nouveau voyage pour commencer.";
+  if (
+    initialTripIdFromData &&
+    initialTripIdFromData !== "None" &&
+    currentTripDataFromFlask
+  ) {
+    tripData.id = initialTripIdFromData;
+    Object.assign(tripData, currentTripDataFromFlask);
+    console.log("Initial trip data loaded from Flask context:", tripData);
+
+    document.querySelector("h1").textContent = `Mon Voyage : ${tripData.name}`;
+    document.querySelector("header p").textContent = `Du ${
+      tripData.startDate
+    } au ${tripData.endDate} (${calculateDuration(
+      tripData.startDate,
+      tripData.endDate
+    )} jours)`;
+
+    renderAllSections();
+    toggleDashboardInteractivity(true);
+
+    if (miniMap) {
+      destroyLeafletMap(miniMap);
     }
+    const initialLat =
+      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lat : 41.9028;
+    const initialLon =
+      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
+    miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
+    if (miniMap) miniMap.invalidateSize();
+  } else {
+    tripData.clear();
+    renderAllSections();
+    document.getElementById("mainContent").classList.add("hidden");
+    document.getElementById("tripStatusMessage").textContent =
+      "Aucun voyage trouvé. Créez un nouveau voyage pour commencer.";
+    toggleDashboardInteractivity(false);
   }
 
   // Map modal event listeners
   document.getElementById("openMapModal").addEventListener("click", () => {
-    if (!tripData.id) {
-      alert("Veuillez sélectionner ou créer un voyage pour voir la carte.");
-      return;
-    }
+    if (!tripData.id) return;
+
     const modal = document.getElementById("mapModal");
     modal.classList.remove("hidden");
 

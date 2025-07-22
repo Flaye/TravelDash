@@ -38,7 +38,9 @@
     </p>
   </section>
 
-  <main id="mainContent" class="{% if not current_trip_data %}hidden{% endif %}">
+  <main id="mainContent" class="{% if not current_trip_data %}hidden{% endif %}"
+        data-current-trip-id="{{ current_trip_data.id if current_trip_data else '' }}"
+        data-current-trip-data="{{ current_trip_data | tojson }}">
     <div
       class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
     >

@@ -79,40 +79,32 @@ def login():
 
         try:
             # Tente de se connecter avec Firebase Auth
-            user = auth.get_user_by_email(email)
-            # Si l'utilisateur existe, vérifie le mot de passe (pas directement possible avec Admin SDK)
-            # Pour une vraie application, vous utiliseriez une fonction Cloud ou une API client-side pour la vérification du mot de passe
-            # Ici, nous allons simplifier : si l'utilisateur existe, on le connecte
-            # C'est une SIMPLIFICATION pour la démo, PAS une pratique sécurisée pour la production
-            login_user(User(user.uid, user.email))
+            # Note: Le SDK Admin ne permet pas de vérifier le mot de passe côté serveur directement.
+            # Pour une vraie application, vous utiliseriez le SDK client-side pour la connexion
+            # et ensuite vérifieriez le token d'ID côté serveur, ou utiliseriez Firebase Functions.
+            # Ici, nous allons simplifier pour la démo: on tente de récupérer l'utilisateur par email.
+            # Si l'utilisateur existe, on le considère "connecté" pour Flask-Login.
+            # Si le mot de passe est incorrect, Firebase Auth côté client lèverait une erreur.
+            # Pour cette démo Flask, nous allons simplement créer ou récupérer l'utilisateur.
+            try:
+                user_record = auth.get_user_by_email(email)
+                print(f"Utilisateur existant: {user_record.uid}")
+            except auth.UserNotFoundError:
+                user_record = auth.create_user(email=email, password=password)
+                print(f"Nouvel utilisateur créé: {user_record.uid}")
+
+            login_user(User(user_record.uid, user_record.email))
 
             # Assurez-vous que le document utilisateur existe dans Firestore
-            user_doc_ref = db.collection("users").document(user.uid)
+            user_doc_ref = db.collection("users").document(user_record.uid)
             if not user_doc_ref.get().exists:
                 user_doc_ref.set(
-                    {"email": user.email, "ownedTrips": [], "sharedTrips": []}
+                    {"email": user_record.email, "ownedTrips": [], "sharedTrips": []}
                 )
 
             return redirect(url_for("dashboard"))
-        except auth.UserNotFoundError:
-            # Si l'utilisateur n'existe pas, on le crée
-            try:
-                user = auth.create_user(email=email, password=password)
-                print(f"Nouvel utilisateur créé: {user.uid}")
-                login_user(User(user.uid, user.email))
-
-                # Crée le document utilisateur dans Firestore
-                db.collection("users").document(user.uid).set(
-                    {"email": user.email, "ownedTrips": [], "sharedTrips": []}
-                )
-
-                return redirect(url_for("dashboard"))
-            except Exception as e:
-                error = f"Erreur lors de la création de l'utilisateur: {e}"
-                print(error)
-                return render_template("login.html", error=error)
         except Exception as e:
-            error = f"Erreur de connexion: {e}"
+            error = f"Erreur de connexion/inscription: {e}"
             print(error)
             return render_template("login.html", error=error)
 
@@ -190,6 +182,7 @@ def _load_trip_data_from_firestore(trip_id):
     subcollections = ["itinerary", "hotels", "transports", "expenses", "mapPoints"]
     for sub_name in subcollections:
         sub_docs = trip_doc_ref.collection(sub_name).stream()
+        # Convertit les documents en dictionnaires, en ajoutant l'ID du document
         trip_data[sub_name] = [{"id": doc.id, **doc.to_dict()} for doc in sub_docs]
 
     return trip_data
@@ -232,6 +225,28 @@ def create_trip():
     except Exception as e:
         print(f"Erreur lors de la création du voyage: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/trips/<trip_id>/all_data", methods=["GET"])
+@login_required
+def get_all_trip_data(trip_id):
+    """API endpoint to get all data for a specific trip."""
+    # Vérifie les permissions d'accès au voyage
+    trip_doc = db.collection("trips").document(trip_id).get()
+    if not trip_doc.exists:
+        return jsonify({"error": "Voyage non trouvé"}), 404
+
+    trip_data = trip_doc.to_dict()
+    if current_user.id != trip_data.get(
+        "ownerId"
+    ) and current_user.id not in trip_data.get("sharedWith", []):
+        return jsonify({"error": "Accès non autorisé à ce voyage"}), 403
+
+    full_trip_data = _load_trip_data_from_firestore(trip_id)
+    if full_trip_data:
+        return jsonify(full_trip_data), 200
+    else:
+        return jsonify({"error": "Impossible de charger les données du voyage"}), 500
 
 
 @app.route("/api/trips/<trip_id>/<collection_name>", methods=["GET"])
