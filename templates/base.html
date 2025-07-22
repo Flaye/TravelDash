@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ title | default('Tableau de Bord de Voyage') }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background-color: #f8fafc; /* stone-50 */
+        color: #334155; /* stone-800 */
+      }
+      body.dark {
+        background-color: #292c35;
+        color: #e2e8f0;
+      }
+      body.dark .bg-white {
+        background-color: #2d3748;
+        border-color: #4a5568;
+      }
+      body.dark .text-stone-900 {
+        color: #f8fafc;
+      }
+      body.dark .text-stone-600 {
+        color: #cbd5e0;
+      }
+      body.dark .text-stone-800 {
+        color: #e2e8f0;
+      }
+      body.dark .bg-stone-100 {
+        background-color: #4a5568;
+      }
+      body.dark .text-stone-700 {
+        color: #cbd5e0;
+      }
+      body.dark .border-stone-200 {
+        border-color: #4a5568;
+      }
+      body.dark .bg-stone-50 {
+        background-color: #2d3748;
+      }
+      body.dark .bg-blue-100 {
+        background-color: #2a4365;
+        color: #90cdf4;
+      }
+      body.dark .text-blue-800 {
+        color: #90cdf4;
+      }
+      body.dark .text-blue-700 {
+        color: #63b3ed;
+      }
+      body.dark .bg-blue-600 {
+        background-color: #3182ce;
+      }
+      body.dark .hover\:bg-blue-700:hover {
+        background-color: #2b6cb0;
+      }
+      body.dark .text-yellow-400 {
+        color: #ecc94b;
+      }
+      body.dark .text-stone-500 {
+        color: #a0aec0;
+      }
+      .checkbox {
+        opacity: 0;
+        position: absolute;
+      }
+
+      .checkbox-label {
+        background-color: #ccc;
+        width: 50px;
+        height: 26px;
+        border-radius: 50px;
+        position: relative;
+        padding: 5px;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: background-color 0.2s linear;
+      }
+
+      body.dark .checkbox-label {
+        background-color: #111;
+      }
+
+      .fa-moon {
+        color: #f1c40f;
+      }
+
+      .fa-sun {
+        color: #f39c12;
+      }
+
+      .checkbox-label .ball {
+        background-color: #fff;
+        width: 22px;
+        height: 22px;
+        position: absolute;
+        left: 2px;
+        top: 2px;
+        border-radius: 50%;
+        transition: transform 0.2s linear;
+      }
+
+      .checkbox:checked + .checkbox-label .ball {
+        transform: translateX(24px);
+      }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-stone-800">
+    <div id="app" class="container mx-auto p-4 sm:p-6 lg:p-8">
+      <header class="mb-8 flex justify-between items-center">
+        <div>
+          <h1 class="text-3xl font-bold text-stone-900">
+            Tableau de Bord de Voyage
+          </h1>
+          <p class="text-stone-600 mt-1">Gérez vos aventures</p>
+        </div>
+        <div class="flex items-center space-x-4">
+          <!-- Dark Mode Toggle -->
+          <div>
+            <input type="checkbox" class="checkbox" id="darkModeToggle" />
+            <label for="darkModeToggle" class="checkbox-label">
+              <i class="fas fa-moon"></i>
+              <i class="fas fa-sun"></i>
+              <span class="ball"></span>
+            </label>
+          </div>
+          {% if current_user.is_authenticated %}
+          <a
+            href="{{ url_for('logout') }}"
+            class="bg-red-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-600 transition-colors"
+            >Déconnexion</a
+          >
+          {% endif %}
+        </div>
+      </header>
+
+      {% block content %}{% endblock %}
+    </div>
+
+    <script>
+      // Dark Mode Toggle Logic (client-side)
+      function setupDarkModeToggle() {
+        const darkModeToggle = document.getElementById("darkModeToggle");
+        const setTheme = (isDarkMode) => {
+          if (isDarkMode) {
+            document.body.classList.add("dark");
+            localStorage.setItem("theme", "dark");
+          } else {
+            document.body.classList.remove("dark");
+            localStorage.setItem("theme", "light");
+          }
+        };
+
+        const savedTheme = localStorage.getItem("theme");
+        if (savedTheme === "dark") {
+          setTheme(true);
+        } else {
+          setTheme(false);
+        }
+
+        darkModeToggle.addEventListener("change", () => {
+          setTheme(darkModeToggle.checked);
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", setupDarkModeToggle);
+    </script>
+  </body>
+</html>

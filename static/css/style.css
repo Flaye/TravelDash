@@ -1,0 +1,51 @@
+/* static/css/style.css */
+
+/* Styles spécifiques à Leaflet pour l'inversion en mode sombre */
+body.dark .leaflet-container {
+  filter: invert(90%) hue-rotate(180deg);
+}
+
+/* Styles pour le graphique en anneau */
+.chart-container {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+  margin: auto;
+  aspect-ratio: 1 / 1;
+}
+.chart-center-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Styles pour la navigation par onglets */
+.nav-active {
+  border-bottom-color: #2563eb;
+  color: #1e40af;
+  font-weight: 600;
+}
+.nav-inactive {
+  border-bottom-color: transparent;
+  color: #4b5563;
+}
+body.dark .nav-inactive {
+  color: #cbd5e0;
+}
+body.dark .nav-active {
+  color: #90cdf4;
+  border-bottom-color: #90cdf4;
+}
+
+/* Styles pour le carrousel météo */
+.weather-carousel::-webkit-scrollbar {
+  display: none;
+}
+.weather-carousel {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
