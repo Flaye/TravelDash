@@ -24,7 +24,7 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "default_secret_key_if_not_se
 # Assurez-vous que le fichier firebase_admin_sdk_key.json est à la racine de votre projet
 try:
     cred = credentials.Certificate("firebase_admin_sdk_key.json")
-    firebase_admin.initialize_app(cred)
+    firebase_admin.initialize_app(cred)  # Correction ici: initialize_app
     db = firestore.client()
     print("Firebase Admin SDK initialisé avec succès.")
 except Exception as e:
@@ -78,31 +78,40 @@ def login():
         password = request.form.get("password")
 
         try:
-            # Tente de se connecter avec Firebase Auth
-            # Note: Le SDK Admin ne permet pas de vérifier le mot de passe côté serveur directement.
-            # Pour une vraie application, vous utiliseriez le SDK client-side pour la connexion
-            # et ensuite vérifieriez le token d'ID côté serveur, ou utiliseriez Firebase Functions.
-            # Ici, nous allons simplifier pour la démo: on tente de récupérer l'utilisateur par email.
-            # Si l'utilisateur existe, on le considère "connecté" pour Flask-Login.
-            # Si le mot de passe est incorrect, Firebase Auth côté client lèverait une erreur.
-            # Pour cette démo Flask, nous allons simplement créer ou récupérer l'utilisateur.
+            user_record = None
             try:
+                # Tente de récupérer l'utilisateur par email.
                 user_record = auth.get_user_by_email(email)
-                print(f"Utilisateur existant: {user_record.uid}")
+                print(f"Utilisateur existant trouvé: {user_record.uid}")
+                # IMPORTANT: Firebase Admin SDK ne permet PAS de vérifier le mot de passe ici.
+                # Pour une vérification sécurisée du mot de passe, vous DEVEZ utiliser le SDK client-side
+                # de Firebase Authentication (par exemple, firebase.auth().signInWithEmailAndPassword())
+                # dans votre frontend, puis envoyer l'ID Token résultant à Flask pour vérification.
+                # Pour cette démo, nous simplifions en considérant l'utilisateur connecté si l'email existe.
             except auth.UserNotFoundError:
+                # Si l'utilisateur n'existe pas, nous le créons.
                 user_record = auth.create_user(email=email, password=password)
                 print(f"Nouvel utilisateur créé: {user_record.uid}")
 
-            login_user(User(user_record.uid, user_record.email))
+            if user_record:
+                login_user(User(user_record.uid, user_record.email))
 
-            # Assurez-vous que le document utilisateur existe dans Firestore
-            user_doc_ref = db.collection("users").document(user_record.uid)
-            if not user_doc_ref.get().exists:
-                user_doc_ref.set(
-                    {"email": user_record.email, "ownedTrips": [], "sharedTrips": []}
-                )
+                # Assurez-vous que le document utilisateur existe dans Firestore
+                user_doc_ref = db.collection("users").document(user_record.uid)
+                if not user_doc_ref.get().exists:
+                    user_doc_ref.set(
+                        {
+                            "email": user_record.email,
+                            "ownedTrips": [],
+                            "sharedTrips": [],
+                        }
+                    )
 
-            return redirect(url_for("dashboard"))
+                return redirect(url_for("dashboard"))
+            else:
+                error = "Erreur inattendue lors de la connexion."
+                return render_template("login.html", error=error)
+
         except Exception as e:
             error = f"Erreur de connexion/inscription: {e}"
             print(error)
@@ -152,10 +161,8 @@ def dashboard():
         selected_trip_id = request.args.get("trip_id")
         if selected_trip_id and selected_trip_id in all_trip_ids:
             current_trip_data = _load_trip_data_from_firestore(selected_trip_id)
-        elif all_trip_ids:
-            # No default trip loaded on initial dashboard load if no trip_id is specified
-            # The frontend will now call renderTripList to show all trips
-            pass
+        # Pas de chargement par défaut si aucun trip_id n'est spécifié.
+        # Le frontend gérera l'affichage de la liste des voyages.
 
     return render_template(
         "dashboard.html",
@@ -207,7 +214,8 @@ def create_trip():
                 "startDate": data.get("startDate", ""),
                 "endDate": data.get("endDate", ""),
                 "description": data.get("description", ""),
-                "totalBudget": float(data.get("totalBudget", 0)),
+                # Convertit totalBudget en float, gère les chaînes vides en 0.0
+                "totalBudget": float(data.get("totalBudget") or 0.0),
                 "ownerId": user_id,
                 "sharedWith": [],
             }
@@ -293,6 +301,17 @@ def add_item_to_subcollection(trip_id, collection_name):
         return jsonify({"error": "Accès non autorisé ou voyage non trouvé"}), 403
 
     try:
+        # Assurez-vous que les champs numériques sont convertis correctement
+        if collection_name == "expenses":
+            data["amount"] = float(data.get("amount") or 0.0)
+        elif collection_name == "hotels":
+            data["pricePerNight"] = float(data.get("pricePerNight") or 0.0)
+            data["totalPrice"] = float(data.get("totalPrice") or 0.0)
+        elif collection_name == "transports":
+            data["price"] = float(data.get("price") or 0.0)
+            data["estimationCarburant"] = float(data.get("estimationCarburant") or 0.0)
+            data["estimationPeage"] = float(data.get("estimationPeage") or 0.0)
+
         new_item_ref = (
             db.collection("trips")
             .document(trip_id)
@@ -316,6 +335,17 @@ def update_item_in_subcollection(trip_id, collection_name, item_id):
         return jsonify({"error": "Accès non autorisé ou voyage non trouvé"}), 403
 
     try:
+        # Assurez-vous que les champs numériques sont convertis correctement
+        if collection_name == "expenses":
+            data["amount"] = float(data.get("amount") or 0.0)
+        elif collection_name == "hotels":
+            data["pricePerNight"] = float(data.get("pricePerNight") or 0.0)
+            data["totalPrice"] = float(data.get("totalPrice") or 0.0)
+        elif collection_name == "transports":
+            data["price"] = float(data.get("price") or 0.0)
+            data["estimationCarburant"] = float(data.get("estimationCarburant") or 0.0)
+            data["estimationPeage"] = float(data.get("estimationPeage") or 0.0)
+
         db.collection("trips").document(trip_id).collection(collection_name).document(
             item_id
         ).update(data)
@@ -375,7 +405,11 @@ def get_user_trips_summary():
                     .stream()
                 )
                 for doc in expenses_docs:
-                    total_calculated_cost += float(doc.to_dict().get("amount", 0))
+                    # Gère les valeurs manquantes ou vides pour 'amount'
+                    amount = doc.to_dict().get("amount")
+                    total_calculated_cost += (
+                        float(amount) if amount not in [None, ""] else 0.0
+                    )
 
                 hotels_docs = (
                     db.collection("trips")
@@ -384,7 +418,11 @@ def get_user_trips_summary():
                     .stream()
                 )
                 for doc in hotels_docs:
-                    total_calculated_cost += float(doc.to_dict().get("totalPrice", 0))
+                    # Gère les valeurs manquantes ou vides pour 'totalPrice'
+                    total_price = doc.to_dict().get("totalPrice")
+                    total_calculated_cost += (
+                        float(total_price) if total_price not in [None, ""] else 0.0
+                    )
 
                 transports_docs = (
                     db.collection("trips")
@@ -393,12 +431,20 @@ def get_user_trips_summary():
                     .stream()
                 )
                 for doc in transports_docs:
-                    if doc.to_dict().get("type") == "Voiture":
-                        total_calculated_cost += float(
-                            doc.to_dict().get("estimationCarburant", 0)
-                        ) + float(doc.to_dict().get("estimationPeage", 0))
+                    transport_info = doc.to_dict()
+                    if transport_info.get("type") == "Voiture":
+                        # Gère les valeurs manquantes ou vides pour 'estimationCarburant' et 'estimationPeage'
+                        carb = transport_info.get("estimationCarburant")
+                        peage = transport_info.get("estimationPeage")
+                        total_calculated_cost += (
+                            float(carb) if carb not in [None, ""] else 0.0
+                        ) + (float(peage) if peage not in [None, ""] else 0.0)
                     else:
-                        total_calculated_cost += float(doc.to_dict().get("price", 0))
+                        # Gère les valeurs manquantes ou vides pour 'price'
+                        price = transport_info.get("price")
+                        total_calculated_cost += (
+                            float(price) if price not in [None, ""] else 0.0
+                        )
 
                 trips_summary.append(
                     {

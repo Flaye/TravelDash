@@ -3,6 +3,7 @@
 // Global variables for map instances
 let miniMap = null;
 let modalMap = null;
+let costChartInstance = null; // To store the Chart.js instance
 
 // Global variables for form modal state
 let currentCategory = "";
@@ -18,6 +19,12 @@ const tripData = {
   totalBudget: 0,
   costs: {
     total: 0,
+    hotels: 0,
+    transports: 0,
+    activities: 0,
+    food: 0,
+    shopping: 0,
+    other: 0,
   },
   weather: [
     {
@@ -88,6 +95,12 @@ tripData.clear = function () {
   this.description = "";
   this.totalBudget = 0;
   this.costs.total = 0;
+  this.costs.hotels = 0;
+  this.costs.transports = 0;
+  this.costs.activities = 0;
+  this.costs.food = 0;
+  this.costs.shopping = 0;
+  this.costs.other = 0;
   this.itinerary = [];
   this.mapPoints = [];
   this.routes = [];
@@ -733,12 +746,14 @@ function showActionMessage(message) {
 
 // Event listener for form submission
 dynamicForm.addEventListener("submit", async (e) => {
+  console.log("[dynamicForm submit] Form submission initiated."); // Log start of submission
   e.preventDefault();
   const formData = new FormData(dynamicForm);
   const itemData = {};
   for (const [key, value] of formData.entries()) {
     itemData[key] = value;
   }
+  console.log("[dynamicForm submit] itemData being sent:", itemData); // Log itemData
 
   // Special handling for mapPoints: ensure lat/lon are populated
   if (currentCategory === "mapPoints") {
@@ -798,24 +813,34 @@ dynamicForm.addEventListener("submit", async (e) => {
 
     if (!response.ok) {
       const errorData = await response.json();
+      console.error(
+        "[dynamicForm submit] Server response not OK:",
+        response.status,
+        errorData
+      ); // Log detailed error
       throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
     }
 
     const result = await response.json();
-    console.log("Opération réussie:", result);
+    console.log("[dynamicForm submit] Server response successful:", result); // Log successful result
     showActionMessage("Opération réussie !"); // Success message
 
     if (currentCategory === "newTrip") {
       window.location.href = `/dashboard?trip_id=${result.tripId}`;
     } else {
-      await window.loadCurrentTripData(); // Call through window object
+      await window.loadCurrentTripData(tripData.id); // Call through window object, pass tripData.id
     }
   } catch (error) {
-    console.error("Error saving data:", error);
+    console.error("[dynamicForm submit] Error saving data:", error); // Log detailed error
     showActionMessage(`Erreur lors de la sauvegarde: ${error.message}`); // Error message
   } finally {
     hideFormModal();
   }
+});
+
+// Explicitly handle submit button click
+submitFormBtn.addEventListener("click", () => {
+  dynamicForm.requestSubmit(); // Programmatically trigger form submission
 });
 
 // Delegate event listeners for "Modifier" and "Supprimer" buttons
@@ -878,7 +903,7 @@ document.addEventListener("click", async (e) => {
 
       console.log(`Document ${id} deleted from ${category}.`);
       showActionMessage("Élément supprimé avec succès !"); // Success message
-      await window.loadCurrentTripData(); // Call through window object
+      await window.loadCurrentTripData(tripData.id); // Call through window object, pass tripData.id
     } catch (error) {
       console.error(`Error deleting document ${id} from ${category}:`, error);
       showActionMessage(`Erreur lors de la suppression: ${error.message}`); // Error message
@@ -887,11 +912,43 @@ document.addEventListener("click", async (e) => {
 });
 
 // Add event listeners for "Add" buttons (now handled by delegated event listener above)
-// document.getElementById('addHotelBtn').addEventListener('click', () => {
-//     if (!tripData.id) { showActionMessage("Veuillez sélectionner ou créer un voyage d'abord."); return; }
-//     showFormModal('Ajouter un nouvel hôtel', 'hotels');
-// });
-// ... (similar removed listeners)
+document.getElementById("addHotelBtn").addEventListener("click", () => {
+  if (!tripData.id) {
+    showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+    return;
+  }
+  showFormModal("Ajouter un nouvel hôtel", "hotels");
+});
+document.getElementById("addTransportBtn").addEventListener("click", () => {
+  if (!tripData.id) {
+    showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+    return;
+  }
+  showFormModal("Ajouter un nouveau transport", "transports");
+});
+document.getElementById("addItineraryBtn").addEventListener("click", () => {
+  if (!tripData.id) {
+    showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+    return;
+  }
+  showFormModal("Ajouter une nouvelle étape", "mapPoints");
+});
+document.getElementById("addExpenseBtn").addEventListener("click", () => {
+  if (!tripData.id) {
+    showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+    return;
+  }
+  showFormModal("Ajouter une nouvelle dépense", "expenses");
+});
+document
+  .getElementById("addOverviewItineraryBtn")
+  .addEventListener("click", () => {
+    if (!tripData.id) {
+      showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+      return;
+    }
+    showFormModal("Ajouter une étape à l'itinéraire principal", "itinerary");
+  });
 
 // New Trip and Trip Selection Listeners
 document.getElementById("createNewTripBtn").addEventListener("click", () => {
@@ -934,7 +991,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     )} jours)`;
 
     renderAllSections();
-    showTripDetailView(); // Show the detail view
+    showTripDetailView(); // Show the detail view, which now also invalidates map size
 
     if (miniMap) {
       destroyLeafletMap(miniMap);
@@ -944,19 +1001,21 @@ document.addEventListener("DOMContentLoaded", async function () {
     const initialLon =
       tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
     miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
-    if (miniMap) miniMap.invalidateSize();
+    // No need for miniMap.invalidateSize() here, showTripDetailView handles it.
   } else {
     // No specific trip, show the list of all trips
     tripData.clear();
     renderAllSections(); // Clear any previous rendering
-    showTripListView(); // Show the list view
+    showTripListView(); // Show the list view, which also disables interactivity
     await renderTripList(); // Populate the list
   }
 
   // Map modal event listeners
   document.getElementById("openMapModal").addEventListener("click", () => {
-    // The check for tripData.id is now handled by the delegated event listener
-    // if (!tripData.id) { showActionMessage("Veuillez sélectionner ou créer un voyage d'abord."); return; }
+    if (!tripData.id) {
+      showActionMessage("Veuillez sélectionner ou créer un voyage d'abord.");
+      return;
+    }
 
     const modal = document.getElementById("mapModal");
     modal.classList.remove("hidden");
@@ -996,8 +1055,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 
 // Explicitly define loadCurrentTripData on the window object
 window.loadCurrentTripData = async function (tripId) {
+  console.log(`[loadCurrentTripData] Attempting to load trip: ${tripId}`);
   if (!tripId) {
-    console.warn("No trip ID provided to loadCurrentTripData.");
+    console.warn("[loadCurrentTripData] No trip ID provided.");
     showActionMessage("Aucun voyage sélectionné.");
     return;
   }
@@ -1012,7 +1072,7 @@ window.loadCurrentTripData = async function (tripId) {
 
     // Update local tripData object
     Object.assign(tripData, data);
-    console.log("Trip data loaded from Flask:", tripData);
+    console.log("[loadCurrentTripData] Trip data loaded from Flask:", tripData);
 
     // Update header and status message
     document.querySelector("h1").textContent = `Mon Voyage : ${tripData.name}`;
@@ -1027,7 +1087,8 @@ window.loadCurrentTripData = async function (tripId) {
     ).textContent = `Voyage chargé: ${tripData.name}`;
 
     renderAllSections();
-    showTripDetailView(); // Show the detail view
+    showTripDetailView(); // Show the detail view, which now also invalidates map size
+    console.log("[loadCurrentTripData] showTripDetailView called.");
 
     // Re-initialize mini-map if it exists or create it
     if (miniMap) {
@@ -1038,9 +1099,12 @@ window.loadCurrentTripData = async function (tripId) {
     const initialLon =
       tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
     miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
-    if (miniMap) miniMap.invalidateSize();
+    // No need for miniMap.invalidateSize() here, showTripDetailView handles it.
   } catch (error) {
-    console.error("Error loading trip data from Flask API:", error);
+    console.error(
+      "[loadCurrentTripData] Error loading trip data from Flask API:",
+      error
+    );
     tripData.clear();
     renderAllSections();
     showTripListView(); // Go back to list view on error
@@ -1053,6 +1117,7 @@ window.loadCurrentTripData = async function (tripId) {
  * Renders the list of all trips as cards.
  */
 async function renderTripList() {
+  console.log("[renderTripList] Starting to render trip list.");
   tripCardsContainer.innerHTML = ""; // Clear existing cards
   noTripsMessage.classList.add("hidden"); // Hide no trips message by default
 
@@ -1063,6 +1128,7 @@ async function renderTripList() {
       throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
     }
     const trips = await response.json();
+    console.log("[renderTripList] Fetched trips summary:", trips);
 
     if (trips.length > 0) {
       trips.forEach((trip) => {
@@ -1095,6 +1161,7 @@ async function renderTripList() {
                     )} €</p>
                 `;
         card.addEventListener("click", () => {
+          console.log(`[renderTripList] Card clicked for trip ID: ${trip.id}`);
           window.loadCurrentTripData(trip.id);
         });
         tripCardsContainer.appendChild(card);
@@ -1108,7 +1175,7 @@ async function renderTripList() {
         "Aucun voyage trouvé. Créez un nouveau voyage pour commencer.";
     }
   } catch (error) {
-    console.error("Error fetching trip list:", error);
+    console.error("[renderTripList] Error fetching trip list:", error);
     showActionMessage(
       `Erreur lors du chargement des voyages: ${error.message}`
     );
@@ -1116,26 +1183,53 @@ async function renderTripList() {
     document.getElementById("tripStatusMessage").textContent =
       "Erreur lors du chargement des voyages. Veuillez réessayer.";
   }
+  console.log("[renderTripList] Finished rendering trip list.");
 }
 
 /**
  * Shows the trip list view and hides the trip detail view.
  */
 function showTripListView() {
+  console.log("Showing Trip List View");
   tripListView.classList.remove("hidden");
   tripDetailView.classList.add("hidden");
-  // Disable interaction on trip detail view elements
-  toggleDashboardInteractivity(false);
+  document.getElementById(
+    "tripStatusMessage"
+  ).textContent = `Sélectionnez un voyage ci-dessous ou créez-en un nouveau.`;
+  // Ensure all tabs are reset to inactive when returning to list view
+  document.querySelectorAll(".tab-button").forEach((btn) => {
+    btn.classList.remove("nav-active");
+    btn.classList.add("nav-inactive");
+  });
+  // Set the overview tab as active by default for the detail view
+  document
+    .querySelector(".tab-button[data-tab='overview']")
+    .classList.add("nav-active");
+  // Hide all tab contents
+  document.querySelectorAll(".tab-content").forEach((content) => {
+    content.classList.add("hidden");
+  });
+  // Show the overview content
+  document.getElementById("overview-content").classList.remove("hidden");
+
+  toggleDashboardInteractivity(false); // Disable interaction on trip detail view elements
 }
 
 /**
  * Shows the trip detail view and hides the trip list view.
  */
 function showTripDetailView() {
+  console.log("Showing Trip Detail View");
   tripListView.classList.add("hidden");
   tripDetailView.classList.remove("hidden");
   // Enable interaction on trip detail view elements
   toggleDashboardInteractivity(true);
+
+  // Invalidate map size after the container is visible
+  if (miniMap) {
+    miniMap.invalidateSize();
+    console.log("miniMap invalidateSize called in showTripDetailView");
+  }
 }
 
 /**
@@ -1162,5 +1256,669 @@ function toggleDashboardInteractivity(enable) {
       el.classList.add("pointer-events-none", "opacity-50");
       el.setAttribute("disabled", "true");
     });
+  }
+}
+
+// --- Utility Functions (previously missing, now re-added) ---
+
+/**
+ * Sets up tab switching functionality.
+ */
+function setupTabs() {
+  document.querySelectorAll(".tab-button").forEach((button) => {
+    button.addEventListener("click", function () {
+      // Remove active class from all buttons and hide all content
+      document.querySelectorAll(".tab-button").forEach((btn) => {
+        btn.classList.remove("nav-active");
+        btn.classList.add("nav-inactive");
+      });
+      document.querySelectorAll(".tab-content").forEach((content) => {
+        content.classList.add("hidden");
+      });
+
+      // Add active class to clicked button and show relevant content
+      this.classList.remove("nav-inactive");
+      this.classList.add("nav-active");
+      const tabId = this.dataset.tab;
+      document.getElementById(`${tabId}-content`).classList.remove("hidden");
+
+      // Special handling for map tab to invalidate size when it becomes visible
+      if (tabId === "overview" && miniMap) {
+        setTimeout(() => miniMap.invalidateSize(), 100);
+      }
+    });
+  });
+}
+
+/**
+ * Sets up navigation for the weather carousel.
+ */
+function setupWeatherNavigation() {
+  const weatherCarousel = document.getElementById("weather-carousel-container");
+  const prevBtn = document.getElementById("weather-prev");
+  const nextBtn = document.getElementById("weather-next");
+
+  if (weatherCarousel && prevBtn && nextBtn) {
+    prevBtn.addEventListener("click", () => {
+      weatherCarousel.scrollBy({
+        left: -weatherCarousel.clientWidth / 2, // Scroll half the container width
+        behavior: "smooth",
+      });
+    });
+
+    nextBtn.addEventListener("click", () => {
+      weatherCarousel.scrollBy({
+        left: weatherCarousel.clientWidth / 2, // Scroll half the container width
+        behavior: "smooth",
+      });
+    });
+  }
+}
+
+/**
+ * Initializes a Leaflet map.
+ * @param {string} mapId - The ID of the map container.
+ * @param {number} lat - Initial latitude.
+ * @param {number} lon - Initial longitude.
+ * @param {number} zoom - Initial zoom level.
+ * @returns {L.Map} The Leaflet map instance.
+ */
+function initializeLeafletMap(mapId, lat, lon, zoom) {
+  const mapElement = document.getElementById(mapId);
+  if (!mapElement) {
+    console.error(`Map element with ID '${mapId}' not found.`);
+    return null;
+  }
+
+  // Check if a map instance already exists on this element
+  if (mapElement._leaflet_id) {
+    // If it exists, destroy it first
+    const existingMap = L.map(mapId); // Get existing instance
+    existingMap.remove(); // Remove it
+    console.log(`Existing Leaflet map on '${mapId}' destroyed.`);
+  }
+
+  const leafletMap = L.map(mapId).setView([lat, lon], zoom);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(leafletMap);
+
+  return leafletMap;
+}
+
+/**
+ * Destroys a Leaflet map instance.
+ * @param {L.Map} mapInstance - The Leaflet map instance to destroy.
+ */
+function destroyLeafletMap(mapInstance) {
+  if (mapInstance) {
+    mapInstance.remove();
+    mapInstance = null;
+    console.log("Leaflet map instance destroyed.");
+  }
+}
+
+/**
+ * Renders all sections of the dashboard based on current tripData.
+ */
+function renderAllSections() {
+  updateHeaderInfo();
+  renderCostChart();
+  renderWeatherCarousel();
+  renderItineraryList();
+  renderHotelsList();
+  renderTransportsList();
+  renderExpensesList();
+  updateMap();
+}
+
+/**
+ * Updates the header information (trip name, dates, duration).
+ */
+function updateHeaderInfo() {
+  const h1 = document.querySelector("h1");
+  const headerP = document.querySelector("header p");
+  if (tripData.id) {
+    h1.textContent = `Mon Voyage : ${tripData.name}`;
+    headerP.textContent = `Du ${tripData.startDate} au ${
+      tripData.endDate
+    } (${calculateDuration(tripData.startDate, tripData.endDate)} jours)`;
+  } else {
+    h1.textContent = `Tableau de Bord de Voyage`;
+    headerP.textContent = `Connectez-vous pour gérer vos voyages.`;
+  }
+}
+
+/**
+ * Renders or updates the cost distribution chart.
+ */
+function renderCostChart() {
+  const ctx = document.getElementById("costChart").getContext("2d");
+  const totalEstimatedCostSpan = document.getElementById("totalEstimatedCost");
+  const chartCenterText = document.getElementById("costChartCenterText");
+
+  if (!tripData.id) {
+    if (costChartInstance) {
+      costChartInstance.destroy();
+      costChartInstance = null;
+    }
+    totalEstimatedCostSpan.textContent = "0.00 €";
+    chartCenterText.innerHTML =
+      '<div class="text-xl font-bold text-stone-900">0.00 €</div><div class="text-sm text-stone-500">Total</div>';
+    return;
+  }
+
+  const categories = tripData.expenseCategories;
+  const dataValues = categories.map((cat) => {
+    let sum = 0;
+    // Sum expenses by category
+    tripData.expenses
+      .filter((e) => e.category === cat)
+      .forEach((e) => (sum += parseFloat(e.amount || 0)));
+    // Add hotel/transport costs to relevant categories
+    if (cat === "Hébergement") {
+      tripData.hotels.forEach((h) => (sum += parseFloat(h.totalPrice || 0)));
+    }
+    if (cat === "Transport") {
+      tripData.transports.forEach((t) => {
+        if (t.type === "Voiture") {
+          sum +=
+            parseFloat(t.estimationCarburant || 0) +
+            parseFloat(t.estimationPeage || 0);
+        } else {
+          sum += parseFloat(t.price || 0);
+        }
+      });
+    }
+    return sum;
+  });
+
+  const totalCost = dataValues.reduce((acc, val) => acc + val, 0);
+  totalEstimatedCostSpan.textContent = `${totalCost.toFixed(2)} €`;
+  chartCenterText.innerHTML = `<div class="text-xl font-bold text-stone-900">${totalCost.toFixed(
+    2
+  )} €</div><div class="text-sm text-stone-500">Total</div>`;
+
+  const backgroundColors = [
+    "#60A5FA", // Blue-400
+    "#A78BFA", // Purple-400
+    "#FACC15", // Yellow-400
+    "#34D399", // Green-400
+    "#FB923C", // Orange-400
+    "#F87171", // Red-400
+  ];
+  const hoverBackgroundColors = [
+    "#3B82F6", // Blue-500
+    "#8B5CF6", // Purple-500
+    "#F59E0B", // Yellow-500
+    "#10B981", // Green-500
+    "#EA580C", // Orange-500
+    "#EF4444", // Red-500
+  ];
+
+  const chartData = {
+    labels: categories,
+    datasets: [
+      {
+        data: dataValues,
+        backgroundColor: backgroundColors,
+        hoverBackgroundColor: hoverBackgroundColors,
+        borderColor: "transparent",
+        borderWidth: 0,
+      },
+    ],
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "70%",
+    plugins: {
+      legend: {
+        position: "right",
+        labels: {
+          font: {
+            size: 14,
+            family: "'Inter', sans-serif",
+          },
+          color: "#334155", // stone-700
+        },
+      },
+      tooltip: {
+        callbacks: {
+          label: function (context) {
+            let label = context.label || "";
+            if (label) {
+              label += ": ";
+            }
+            if (context.parsed !== null) {
+              label += new Intl.NumberFormat("fr-FR", {
+                style: "currency",
+                currency: "EUR",
+              }).format(context.parsed);
+            }
+            return label;
+          },
+        },
+      },
+    },
+  };
+
+  if (costChartInstance) {
+    costChartInstance.data = chartData;
+    costChartInstance.options = chartOptions;
+    costChartInstance.update();
+  } else {
+    costChartInstance = new Chart(ctx, {
+      type: "doughnut",
+      data: chartData,
+      options: chartOptions,
+    });
+  }
+}
+
+/**
+ * Renders the weather carousel.
+ */
+function renderWeatherCarousel() {
+  const container = document.getElementById("weather-carousel-container");
+  container.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.weather.length === 0) {
+    container.innerHTML =
+      '<p class="text-stone-500 text-center w-full">Prévisions météo non disponibles.</p>';
+    return;
+  }
+
+  tripData.weather.forEach((day) => {
+    const card = document.createElement("div");
+    card.classList.add(
+      "flex-none",
+      "w-40",
+      "p-4",
+      "bg-stone-50",
+      "rounded-lg",
+      "shadow-sm",
+      "text-center",
+      "border",
+      "border-stone-200"
+    );
+    card.innerHTML = `
+            <p class="text-sm font-semibold text-stone-700 mb-1">${day.day}</p>
+            <p class="text-3xl mb-2">${day.icon}</p>
+            <p class="text-lg font-bold text-stone-800">${day.temp}</p>
+            <p class="text-xs text-stone-600">${day.condition}</p>
+        `;
+    container.appendChild(card);
+  });
+}
+
+/**
+ * Renders the main itinerary list.
+ */
+function renderItineraryList() {
+  const listContainer = document.getElementById("itinerary-list");
+  listContainer.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.itinerary.length === 0) {
+    listContainer.innerHTML =
+      '<li class="text-stone-500">Aucune étape d\'itinéraire planifiée.</li>';
+    return;
+  }
+
+  // Sort itinerary by date
+  const sortedItinerary = [...tripData.itinerary].sort(
+    (a, b) => new Date(a.date) - new Date(b.date)
+  );
+
+  sortedItinerary.forEach((item) => {
+    const listItem = document.createElement("li");
+    listItem.classList.add(
+      "flex",
+      "items-start",
+      "space-x-3",
+      "p-2",
+      "rounded-md",
+      "hover:bg-stone-50"
+    );
+    listItem.innerHTML = `
+            <div class="flex-shrink-0 text-stone-500">📅</div>
+            <div class="flex-grow">
+                <p class="font-medium text-stone-800">${formatDate(
+                  item.date
+                )}</p>
+                <p class="text-stone-700 text-sm">${item.description}</p>
+            </div>
+            <div class="flex-shrink-0 flex space-x-2">
+                <button class="edit-btn text-blue-500 hover:text-blue-700 text-sm" data-id="${
+                  item.id
+                }" data-category="itinerary">Modifier</button>
+                <button class="delete-btn text-red-500 hover:text-red-700 text-sm" data-id="${
+                  item.id
+                }" data-category="itinerary">Supprimer</button>
+            </div>
+        `;
+    listContainer.appendChild(listItem);
+  });
+}
+
+/**
+ * Renders the hotels list.
+ */
+function renderHotelsList() {
+  const listContainer = document.getElementById("hotels-list");
+  listContainer.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.hotels.length === 0) {
+    listContainer.innerHTML =
+      '<p class="text-stone-500 text-center">Aucune réservation d\'hôtel ajoutée.</p>';
+    return;
+  }
+
+  // Sort hotels by check-in date
+  const sortedHotels = [...tripData.hotels].sort(
+    (a, b) => new Date(a.checkInDate) - new Date(b.checkInDate)
+  );
+
+  sortedHotels.forEach((hotel) => {
+    const card = document.createElement("div");
+    card.classList.add(
+      "bg-white",
+      "p-6",
+      "rounded-xl",
+      "shadow-sm",
+      "border",
+      "border-stone-200"
+    );
+    card.innerHTML = `
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h3 class="font-bold text-lg text-stone-800">${
+                      hotel.name
+                    } <span class="text-yellow-500">${"★".repeat(
+      hotel.stars
+    )}</span></h3>
+                    <p class="text-sm text-stone-600">${hotel.address}</p>
+                </div>
+                <div class="flex space-x-2">
+                    <button class="edit-btn text-blue-500 hover:text-blue-700 text-sm" data-id="${
+                      hotel.id
+                    }" data-category="hotels">Modifier</button>
+                    <button class="delete-btn text-red-500 hover:text-red-700 text-sm" data-id="${
+                      hotel.id
+                    }" data-category="hotels">Supprimer</button>
+                </div>
+            </div>
+            <p class="text-stone-700 mb-2">Du ${formatDate(
+              hotel.checkInDate
+            )} au ${formatDate(hotel.checkOutDate)}</p>
+            <p class="text-stone-700 mb-2">Prix: ${parseFloat(
+              hotel.totalPrice || 0
+            ).toFixed(2)} € ( ${parseFloat(hotel.pricePerNight || 0).toFixed(
+      2
+    )} €/nuit)</p>
+            ${
+              hotel.info
+                ? `<p class="text-stone-700 text-sm mb-2">Info: ${hotel.info}</p>`
+                : ""
+            }
+            ${
+              hotel.bookingUrl
+                ? `<a href="${hotel.bookingUrl}" target="_blank" class="text-blue-600 hover:underline text-sm">Voir la réservation</a>`
+                : ""
+            }
+        `;
+    listContainer.appendChild(card);
+  });
+}
+
+/**
+ * Renders the transports list.
+ */
+function renderTransportsList() {
+  const listContainer = document.getElementById("transports-list");
+  listContainer.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.transports.length === 0) {
+    listContainer.innerHTML =
+      '<p class="text-stone-500 text-center">Aucun transport ajouté.</p>';
+    return;
+  }
+
+  // Sort transports by departure date
+  const sortedTransports = [...tripData.transports].sort(
+    (a, b) => new Date(a.dep) - new Date(b.dep)
+  );
+
+  sortedTransports.forEach((transport) => {
+    const card = document.createElement("div");
+    card.classList.add(
+      "bg-white",
+      "p-6",
+      "rounded-xl",
+      "shadow-sm",
+      "border",
+      "border-stone-200"
+    );
+    let details = "";
+    let priceInfo = "";
+
+    if (transport.type === "Avion" || transport.type === "Train") {
+      details = `
+                <p class="text-stone-700 mb-1">Compagnie: ${
+                  transport.company || "N/A"
+                }</p>
+                <p class="text-stone-700 mb-1">Numéro: ${
+                  transport.number || "N/A"
+                }</p>
+                <p class="text-stone-700 mb-1">Siège: ${
+                  transport.seat || "N/A"
+                }</p>
+            `;
+      priceInfo = `Prix: ${parseFloat(transport.price || 0).toFixed(2)} €`;
+    } else if (transport.type === "Voiture") {
+      details = `
+                <p class="text-stone-700 mb-1">Estimation Carburant: ${parseFloat(
+                  transport.estimationCarburant || 0
+                ).toFixed(2)} €</p>
+                <p class="text-stone-700 mb-1">Estimation Péage: ${parseFloat(
+                  transport.estimationPeage || 0
+                ).toFixed(2)} €</p>
+            `;
+      priceInfo = `Coût total estimé: ${parseFloat(
+        transport.price || 0
+      ).toFixed(2)} €`;
+    }
+
+    card.innerHTML = `
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h3 class="font-bold text-lg text-stone-800">${
+                      transport.type
+                    }: ${transport.from} &rarr; ${transport.to}</h3>
+                    <p class="text-sm text-stone-600">Départ: ${formatDate(
+                      transport.dep
+                    )} à ${formatTime(transport.dep)}</p>
+                    <p class="text-sm text-stone-600">Arrivée: ${formatDate(
+                      transport.arr
+                    )} à ${formatTime(transport.arr)}</p>
+                </div>
+                <div class="flex space-x-2">
+                    <button class="edit-btn text-blue-500 hover:text-blue-700 text-sm" data-id="${
+                      transport.id
+                    }" data-category="transports">Modifier</button>
+                    <button class="delete-btn text-red-500 hover:text-red-700 text-sm" data-id="${
+                      transport.id
+                    }" data-category="transports">Supprimer</button>
+                </div>
+            </div>
+            ${details}
+            <p class="text-lg font-semibold text-blue-700 mt-2">${priceInfo}</p>
+        `;
+    listContainer.appendChild(card);
+  });
+}
+
+/**
+ * Renders the expenses list.
+ */
+function renderExpensesList() {
+  const tableBody = document.getElementById("expenses-table-body");
+  const totalSpentSpan = document.getElementById("totalSpentExpenses");
+  const totalBudgetSpan = document.getElementById("totalBudgetExpenses");
+  tableBody.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.expenses.length === 0) {
+    tableBody.innerHTML =
+      '<tr><td colspan="5" class="text-center py-4 text-stone-500">Aucune dépense enregistrée.</td></tr>';
+    totalSpentSpan.textContent = "0.00 €";
+    totalBudgetSpan.textContent = `${parseFloat(
+      tripData.totalBudget || 0
+    ).toFixed(2)} €`;
+    return;
+  }
+
+  // Sort expenses by date
+  const sortedExpenses = [...tripData.expenses].sort(
+    (a, b) => new Date(a.date) - new Date(b.date)
+  );
+
+  let totalSpent = 0;
+  sortedExpenses.forEach((expense) => {
+    const amount = parseFloat(expense.amount || 0);
+    totalSpent += amount;
+
+    const row = document.createElement("tr");
+    row.classList.add(
+      "bg-white",
+      "border-b",
+      "border-stone-100",
+      "hover:bg-stone-50"
+    );
+    row.innerHTML = `
+            <td class="px-6 py-4 font-medium text-stone-900">${formatDate(
+              expense.date
+            )}</td>
+            <td class="px-6 py-4">${expense.category}</td>
+            <td class="px-6 py-4">${expense.desc}</td>
+            <td class="px-6 py-4 text-right">${amount.toFixed(2)} €</td>
+            <td class="px-6 py-4 text-right">
+                <button class="edit-btn text-blue-500 hover:text-blue-700 text-sm mr-2" data-id="${
+                  expense.id
+                }" data-category="expenses">Modifier</button>
+                <button class="delete-btn text-red-500 hover:text-red-700 text-sm" data-id="${
+                  expense.id
+                }" data-category="expenses">Supprimer</button>
+            </td>
+        `;
+    tableBody.appendChild(row);
+  });
+
+  totalSpentSpan.textContent = `${totalSpent.toFixed(2)} €`;
+  totalBudgetSpan.textContent = `${parseFloat(
+    tripData.totalBudget || 0
+  ).toFixed(2)} €`;
+}
+
+/**
+ * Updates the Leaflet map with current trip map points and routes.
+ */
+function updateMap() {
+  if (!miniMap) {
+    console.warn("Mini map not initialized. Cannot update.");
+    return;
+  }
+
+  // Clear existing layers (markers, polylines)
+  miniMap.eachLayer(function (layer) {
+    if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+      miniMap.removeLayer(layer);
+    }
+  });
+
+  if (!tripData.id || tripData.mapPoints.length === 0) {
+    // If no trip or no map points, just show a default view or message
+    miniMap.setView([43.7696, 11.2558], 6); // Default view (Florence)
+    return;
+  }
+
+  const markers = [];
+  tripData.mapPoints.forEach((point) => {
+    if (point.lat && point.lon) {
+      const marker = L.marker([point.lat, point.lon])
+        .addTo(miniMap)
+        .bindPopup(
+          `${point.name}<br>Arrivée: ${formatDate(
+            point.arrivalDate
+          )}<br>Départ: ${formatDate(point.departureDate)}`
+        );
+      markers.push(marker);
+    }
+  });
+
+  // Draw route if there are multiple map points
+  if (tripData.mapPoints.length > 1) {
+    const routeCoordinates = tripData.mapPoints
+      .filter((p) => p.lat && p.lon)
+      .map((p) => [p.lat, p.lon]);
+
+    if (routeCoordinates.length > 1) {
+      const polyline = L.polyline(routeCoordinates, {
+        color: "#3B82F6",
+        weight: 4,
+        opacity: 0.7,
+      }).addTo(miniMap);
+      // Fit map bounds to the polyline
+      miniMap.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+    }
+  } else if (tripData.mapPoints.length === 1 && markers.length === 1) {
+    // If only one point, set view to that point
+    miniMap.setView([tripData.mapPoints[0].lat, tripData.mapPoints[0].lon], 10);
+  }
+}
+
+/**
+ * Calculates the duration between two dates in days.
+ * @param {string} startDateStr - Start date string (YYYY-MM-DD).
+ * @param {string} endDateStr - End date string (YYYY-MM-DD).
+ * @returns {number} Number of days.
+ */
+function calculateDuration(startDateStr, endDateStr) {
+  const startDate = new Date(startDateStr);
+  const endDate = new Date(endDateStr);
+  if (isNaN(startDate) || isNaN(endDate)) return 0;
+  const diffTime = Math.abs(endDate - startDate);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays;
+}
+
+/**
+ * Formats a date string to a more readable format (e.g., "DD/MM/YYYY").
+ * @param {string} dateString - The date string (YYYY-MM-DD).
+ * @returns {string} Formatted date string.
+ */
+function formatDate(dateString) {
+  if (!dateString) return "N/A";
+  const options = { year: "numeric", month: "2-digit", day: "2-digit" };
+  try {
+    return new Date(dateString).toLocaleDateString("fr-FR", options);
+  } catch (e) {
+    return dateString; // Return original if invalid
+  }
+}
+
+/**
+ * Formats a datetime string to a time string (e.g., "HH:MM").
+ * @param {string} datetimeString - The datetime string (YYYY-MM-DDTHH:MM).
+ * @returns {string} Formatted time string.
+ */
+function formatTime(datetimeString) {
+  if (!datetimeString) return "N/A";
+  const options = { hour: "2-digit", minute: "2-digit" };
+  try {
+    return new Date(datetimeString).toLocaleTimeString("fr-FR", options);
+  } catch (e) {
+    return datetimeString; // Return original if invalid
   }
 }
