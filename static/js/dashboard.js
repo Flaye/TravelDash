@@ -1565,32 +1565,41 @@ function renderCostChart() {
     cutout: "70%",
     plugins: {
       legend: {
-        position: "right",
-        labels: {
-          font: {
-            size: 14,
-            family: "'Inter', sans-serif",
-          },
-          color: "#334155", // stone-700
-        },
+        display: false, // Set to false to remove the legend
       },
       tooltip: {
-        callbacks: {
-          label: function (context) {
-            let label = context.label || "";
-            if (label) {
-              label += ": ";
-            }
-            if (context.parsed !== null) {
-              label += new Intl.NumberFormat("fr-FR", {
-                style: "currency",
-                currency: "EUR",
-              }).format(context.parsed);
-            }
-            return label;
-          },
-        },
+        enabled: false, // Disable default tooltip
       },
+    },
+    onHover: (event, chartElements) => {
+      // Get the element where the center text is displayed
+      const chartCenterTextElement = document.getElementById(
+        "costChartCenterText"
+      );
+      const currentTotalCost = dataValues.reduce((acc, val) => acc + val, 0); // Recalculate total for current state
+
+      if (chartElements.length > 0) {
+        // If hovering over a chart element
+        const hoveredElement = chartElements[0];
+        const dataIndex = hoveredElement.index;
+        const label = chartData.labels[dataIndex];
+        const value = chartData.datasets[0].data[dataIndex];
+
+        chartCenterTextElement.innerHTML = `
+                    <div class="text-xl font-bold text-stone-900">${value.toFixed(
+                      2
+                    )} €</div>
+                    <div class="text-sm text-stone-500">${label}</div>
+                `;
+      } else {
+        // If not hovering over any element, revert to total
+        chartCenterTextElement.innerHTML = `
+                    <div class="text-xl font-bold text-stone-900">${currentTotalCost.toFixed(
+                      2
+                    )} €</div>
+                    <div class="text-sm text-stone-500">Total</div>
+                `;
+      }
     },
   };
 
