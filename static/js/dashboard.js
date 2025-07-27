@@ -1714,9 +1714,9 @@ function renderMapPointsList() {
     return;
   }
 
-  // Sort mapPoints by arrival date
+  // Sort mapPoints by departure date
   const sortedMapPoints = [...tripData.mapPoints].sort(
-    (a, b) => new Date(a.arrivalDate) - new Date(b.arrivalDate)
+    (a, b) => new Date(a.departureDate) - new Date(b.departureDate)
   );
 
   sortedMapPoints.forEach((point) => {
@@ -2005,6 +2005,9 @@ function updateMap() {
     return;
   }
 
+  // Log mapPoints to debug if data is present
+  console.log("[updateMap] Current tripData.mapPoints:", tripData.mapPoints);
+
   const markers = [];
   tripData.mapPoints.forEach((point) => {
     if (point.lat && point.lon) {
@@ -2016,6 +2019,11 @@ function updateMap() {
           )}<br>Départ: ${formatDate(point.departureDate)}`
         );
       markers.push(marker);
+    } else {
+      console.warn(
+        `[updateMap] Map point '${point.name}' missing latitude or longitude:`,
+        point
+      );
     }
   });
 
@@ -2033,6 +2041,10 @@ function updateMap() {
       }).addTo(miniMap);
       // Fit map bounds to the polyline
       miniMap.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+    } else {
+      console.warn(
+        "[updateMap] Not enough valid coordinates to draw a polyline."
+      );
     }
   } else if (tripData.mapPoints.length === 1 && markers.length === 1) {
     // If only one point, set view to that point
