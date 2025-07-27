@@ -153,7 +153,9 @@ def dashboard():
         if selected_trip_id and selected_trip_id in all_trip_ids:
             current_trip_data = _load_trip_data_from_firestore(selected_trip_id)
         elif all_trip_ids:
-            current_trip_data = _load_trip_data_from_firestore(all_trip_ids[0])
+            # No default trip loaded on initial dashboard load if no trip_id is specified
+            # The frontend will now call renderTripList to show all trips
+            pass
 
     return render_template(
         "dashboard.html",
@@ -343,6 +345,72 @@ def delete_item_from_subcollection(trip_id, collection_name, item_id):
             f"Erreur lors de la suppression de l'élément {item_id} dans {collection_name}: {e}"
         )
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/user_trips_summary", methods=["GET"])
+@login_required
+def get_user_trips_summary():
+    user_id = current_user.id
+    user_doc_ref = db.collection("users").document(user_id)
+    user_doc = user_doc_ref.get()
+
+    trips_summary = []
+    if user_doc.exists:
+        owned_trips_ids = user_doc.to_dict().get("ownedTrips", [])
+        shared_trips_ids = user_doc.to_dict().get("sharedTrips", [])
+        all_trip_ids = list(set(owned_trips_ids + shared_trips_ids))
+
+        for trip_id in all_trip_ids:
+            trip_doc = db.collection("trips").document(trip_id).get()
+            if trip_doc.exists:
+                trip_data = trip_doc.to_dict()
+
+                # Calculate total expenses from subcollections for summary
+                total_calculated_cost = 0
+
+                expenses_docs = (
+                    db.collection("trips")
+                    .document(trip_id)
+                    .collection("expenses")
+                    .stream()
+                )
+                for doc in expenses_docs:
+                    total_calculated_cost += float(doc.to_dict().get("amount", 0))
+
+                hotels_docs = (
+                    db.collection("trips")
+                    .document(trip_id)
+                    .collection("hotels")
+                    .stream()
+                )
+                for doc in hotels_docs:
+                    total_calculated_cost += float(doc.to_dict().get("totalPrice", 0))
+
+                transports_docs = (
+                    db.collection("trips")
+                    .document(trip_id)
+                    .collection("transports")
+                    .stream()
+                )
+                for doc in transports_docs:
+                    if doc.to_dict().get("type") == "Voiture":
+                        total_calculated_cost += float(
+                            doc.to_dict().get("estimationCarburant", 0)
+                        ) + float(doc.to_dict().get("estimationPeage", 0))
+                    else:
+                        total_calculated_cost += float(doc.to_dict().get("price", 0))
+
+                trips_summary.append(
+                    {
+                        "id": trip_doc.id,
+                        "name": trip_data.get("name", "Voyage sans nom"),
+                        "startDate": trip_data.get("startDate", "N/A"),
+                        "endDate": trip_data.get("endDate", "N/A"),
+                        "totalBudget": trip_data.get("totalBudget", 0),
+                        "totalCalculatedCost": total_calculated_cost,
+                    }
+                )
+    return jsonify(trips_summary), 200
 
 
 if __name__ == "__main__":

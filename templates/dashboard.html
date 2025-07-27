@@ -1,84 +1,120 @@
-{% extends 'base.html' %}
-
-{% block content %}
+{% extends 'base.html' %} {% block content %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
 <div class="container mx-auto p-4 sm:p-6 lg:p-8">
-  <!-- User and Trip Selection Section -->
-  <section class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+  <!-- User and Trip Management Section (Always visible) -->
+  <section
+    class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+  >
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-xl font-bold text-stone-800">Gestion des Voyages</h2>
-      <p id="userIdDisplay" class="text-sm text-stone-600">Utilisateur: {{ user_id }}</p>
+      <p id="userIdDisplay" class="text-sm text-stone-600">
+        Utilisateur: {{ user_id }}
+      </p>
     </div>
-    <div class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
-      <button id="createNewTripBtn" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+    <div
+      class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4"
+    >
+      <button
+        id="createNewTripBtn"
+        class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+      >
         Créer un nouveau voyage
       </button>
-      <div class="w-full sm:w-auto flex items-center space-x-2">
-        <label for="tripSelect" class="text-stone-700 font-medium">Charger un voyage:</label>
-        <select id="tripSelect" class="p-2 border border-stone-300 rounded-md bg-white text-stone-800 flex-grow">
-          {% if user_trips %}
-            {% for trip in user_trips %}
-              <option value="{{ trip.id }}" {% if current_trip_data and trip.id == current_trip_data.id %}selected{% endif %}>{{ trip.name }}</option>
-            {% endfor %}
-          {% else %}
-            <option value="">Aucun voyage disponible</option>
-          {% endif %}
-        </select>
-      </div>
     </div>
     <p id="tripStatusMessage" class="mt-4 text-sm text-stone-600">
-      {% if current_trip_data %}
-        Voyage chargé: {{ current_trip_data.name }} ({{ current_trip_data.startDate }} au {{ current_trip_data.endDate }})
-      {% else %}
-        Aucun voyage trouvé. Créez un nouveau voyage pour commencer.
-      {% endif %}
+      <!-- This message will be updated by JS -->
     </p>
+    <!-- New div for action messages -->
+    <div
+      id="actionMessage"
+      class="mt-2 p-3 bg-red-100 text-red-800 rounded-lg hidden"
+      role="alert"
+    ></div>
   </section>
 
-  <main id="mainContent" class="{% if not current_trip_data %}hidden{% endif %}"
-        data-current-trip-id="{{ current_trip_data.id if current_trip_data else '' }}"
-        data-current-trip-data="{{ current_trip_data | tojson }}">
+  <!-- Trip List View (Initially visible if no trip selected) -->
+  <div id="tripListView" class="{% if current_trip_data %}hidden{% endif %}">
+    <h2 class="text-2xl font-bold text-stone-800 mb-6">Mes Voyages</h2>
     <div
-      class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+      id="tripCardsContainer"
+      class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
     >
-      <h2 class="text-xl font-bold text-stone-800 mb-4">
-        Aperçu du voyage
-      </h2>
+      <!-- Trip cards will be rendered here by JavaScript -->
+    </div>
+    <p id="noTripsMessage" class="text-stone-500 text-center mt-8 hidden">
+      Aucun voyage trouvé. Créez un nouveau voyage pour commencer !
+    </p>
+  </div>
+
+  <!-- Trip Detail View (Initially hidden, shown when a trip is selected) -->
+  <div
+    id="tripDetailView"
+    class="{% if not current_trip_data %}hidden{% endif %}"
+    data-current-trip-id="{{ current_trip_data.id if current_trip_data else '' }}"
+    data-current-trip-data="{{ current_trip_data | tojson }}"
+  >
+    <button
+      id="backToTripListBtn"
+      class="mb-6 bg-stone-200 text-stone-700 font-semibold py-2 px-4 rounded-lg hover:bg-stone-300 transition-colors"
+    >
+      &larr; Retour à la liste des voyages
+    </button>
+
+    <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+      <h2 class="text-xl font-bold text-stone-800 mb-4">Aperçu du voyage</h2>
       <p class="text-stone-600">
-        Cette section vous donne une vue d'ensemble de votre voyage,
-        incluant la répartition des coûts, votre itinéraire principal, et
-        une carte visuelle des étapes. Utilisez les onglets ci-dessus pour
-        explorer les détails de vos réservations et dépenses.
+        Cette section vous donne une vue d'ensemble de votre voyage, incluant la
+        répartition des coûts, votre itinéraire principal, et une carte visuelle
+        des étapes. Utilisez les onglets ci-dessus pour explorer les détails de
+        vos réservations et dépenses.
       </p>
     </div>
 
     <nav class="border-b border-stone-200 mb-8">
       <ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
         <li class="mr-2">
-          <button data-tab="overview" class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-active">
+          <button
+            data-tab="overview"
+            class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-active"
+          >
             Vue d'ensemble
           </button>
         </li>
         <li class="mr-2">
-          <button data-tab="hotels" class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive">
+          <button
+            data-tab="hotels"
+            class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive"
+          >
             Hôtels
           </button>
         </li>
         <li class="mr-2">
-          <button data-tab="transports" class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive">
+          <button
+            data-tab="transports"
+            class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive"
+          >
             Transports
           </button>
         </li>
         <li class="mr-2">
-          <button data-tab="itineraries" class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive">
+          <button
+            data-tab="itineraries"
+            class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive"
+          >
             Itinéraires
           </button>
         </li>
         <li>
-          <button data-tab="expenses" class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive">
+          <button
+            data-tab="expenses"
+            class="tab-button inline-block p-4 border-b-2 rounded-t-lg nav-inactive"
+          >
             Dépenses
           </button>
         </li>
@@ -88,9 +124,14 @@
     <div id="overview-content" class="tab-content">
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div class="lg:col-span-2 space-y-8">
-          <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
+          <div
+            class="bg-white p-6 rounded-xl shadow-sm border border-stone-200"
+          >
             <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-lg">Répartition des Coûts (Total: <span id="totalEstimatedCost"></span>)</h3>
+              <h3 class="font-bold text-lg">
+                Répartition des Coûts (Total:
+                <span id="totalEstimatedCost"></span>)
+              </h3>
             </div>
             <div class="chart-container">
               <canvas id="costChart"></canvas>
@@ -101,31 +142,57 @@
             </div>
           </div>
 
-          <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
+          <div
+            class="bg-white p-6 rounded-xl shadow-sm border border-stone-200"
+          >
             <h3 class="font-bold text-lg mb-4">Prévisions Météo</h3>
             <div class="relative flex items-center">
-              <button id="weather-prev" class="absolute left-0 z-10 p-2 bg-white rounded-full shadow-md hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500 -ml-3">
+              <button
+                id="weather-prev"
+                class="absolute left-0 z-10 p-2 bg-white rounded-full shadow-md hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500 -ml-3"
+              >
                 <span class="text-xl font-bold text-stone-700">‹</span>
               </button>
-              <div id="weather-carousel-container" class="flex overflow-x-auto space-x-4 p-2 weather-carousel flex-grow"></div>
-              <button id="weather-next" class="absolute right-0 z-10 p-2 bg-white rounded-full shadow-md hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500 -mr-3">
+              <div
+                id="weather-carousel-container"
+                class="flex overflow-x-auto space-x-4 p-2 weather-carousel flex-grow"
+              ></div>
+              <button
+                id="weather-next"
+                class="absolute right-0 z-10 p-2 bg-white rounded-full shadow-md hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-blue-500 -mr-3"
+              >
                 <span class="text-xl font-bold text-stone-700">›</span>
               </button>
             </div>
           </div>
 
-          <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
+          <div
+            class="bg-white p-6 rounded-xl shadow-sm border border-stone-200"
+          >
             <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-lg">Itinéraire Principal</h3>
-                <button id="addOverviewItineraryBtn" class="bg-green-600 text-white text-xs px-3 py-1 rounded-full hover:bg-green-700 transition-colors">Ajouter une étape</button>
+              <h3 class="font-bold text-lg">Itinéraire Principal</h3>
+              <button
+                id="addOverviewItineraryBtn"
+                class="bg-green-600 text-white text-xs px-3 py-1 rounded-full hover:bg-green-700 transition-colors"
+              >
+                Ajouter une étape
+              </button>
             </div>
             <ul id="itinerary-list" class="space-y-3 text-stone-700"></ul>
           </div>
         </div>
-        <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex flex-col">
+        <div
+          class="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex flex-col"
+        >
           <h3 class="font-bold text-lg mb-4">Carte du Trajet</h3>
-          <div id="leafletMap" class="flex-grow w-full h-64 md:h-auto border rounded-lg bg-stone-100 relative"></div>
-          <button id="openMapModal" class="mt-4 w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+          <div
+            id="leafletMap"
+            class="flex-grow w-full h-64 md:h-auto border rounded-lg bg-stone-100 relative"
+          ></div>
+          <button
+            id="openMapModal"
+            class="mt-4 w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+          >
             Agrandir la carte
           </button>
         </div>
@@ -133,16 +200,21 @@
     </div>
 
     <div id="hotels-content" class="tab-content hidden">
-      <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+      <div
+        class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+      >
         <h2 class="text-xl font-bold text-stone-800 mb-4">
           Détails des Hôtels
         </h2>
         <p class="text-stone-600">
           Retrouvez ici toutes les informations concernant vos réservations
-          d'hôtels. Chaque carte contient les détails de l'adresse, les
-          dates, les prix et les informations de contact pour chaque séjour.
+          d'hôtels. Chaque carte contient les détails de l'adresse, les dates,
+          les prix et les informations de contact pour chaque séjour.
         </p>
-        <button id="addHotelBtn" class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+        <button
+          id="addHotelBtn"
+          class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+        >
           Ajouter un nouvel hôtel
         </button>
       </div>
@@ -150,17 +222,22 @@
     </div>
 
     <div id="transports-content" class="tab-content hidden">
-      <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+      <div
+        class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+      >
         <h2 class="text-xl font-bold text-stone-800 mb-4">
           Détails des Transports
         </h2>
         <p class="text-stone-600">
-          Cette section répertorie tous vos trajets en avion et en train.
-          Vous y trouverez les horaires, les numéros de vol ou de train, les
-          informations sur les terminaux et les gares, ainsi que les détails
-          de votre siège.
+          Cette section répertorie tous vos trajets en avion et en train. Vous y
+          trouverez les horaires, les numéros de vol ou de train, les
+          informations sur les terminaux et les gares, ainsi que les détails de
+          votre siège.
         </p>
-        <button id="addTransportBtn" class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+        <button
+          id="addTransportBtn"
+          class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+        >
           Ajouter un nouveau transport
         </button>
       </div>
@@ -168,15 +245,20 @@
     </div>
 
     <div id="itineraries-content" class="tab-content hidden">
-      <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+      <div
+        class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+      >
         <h2 class="text-xl font-bold text-stone-800 mb-4">
           Détails des Itinéraires
         </h2>
         <p class="text-stone-600">
-          Voici la liste des villes que vous visiterez durant votre voyage.
-          Vous pouvez ajouter, modifier ou supprimer des étapes.
+          Voici la liste des villes que vous visiterez durant votre voyage. Vous
+          pouvez ajouter, modifier ou supprimer des étapes.
         </p>
-        <button id="addItineraryBtn" class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+        <button
+          id="addItineraryBtn"
+          class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+        >
           Ajouter une nouvelle étape
         </button>
       </div>
@@ -184,16 +266,21 @@
     </div>
 
     <div id="expenses-content" class="tab-content hidden">
-      <div class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200">
+      <div
+        class="mb-8 p-6 bg-white rounded-xl shadow-sm border border-stone-200"
+      >
         <h2 class="text-xl font-bold text-stone-800 mb-4">
           Suivi des Dépenses
         </h2>
         <p class="text-stone-600">
           Consultez et gérez vos dépenses de voyage. Le tableau ci-dessous
-          détaille chaque transaction, vous permettant de suivre votre
-          budget en temps réel par rapport au total estimé.
+          détaille chaque transaction, vous permettant de suivre votre budget en
+          temps réel par rapport au total estimé.
         </p>
-        <button id="addExpenseBtn" class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
+        <button
+          id="addExpenseBtn"
+          class="mt-4 bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
+        >
           Ajouter une nouvelle dépense
         </button>
       </div>
@@ -202,7 +289,11 @@
           <h3 class="font-bold text-lg">Liste Détaillée</h3>
           <p class="text-sm font-medium text-stone-600">
             Total Dépensé:
-            <span class="font-bold text-blue-700" id="totalSpentExpenses"></span> / <span id="totalBudgetExpenses"></span>
+            <span
+              class="font-bold text-blue-700"
+              id="totalSpentExpenses"
+            ></span>
+            / <span id="totalBudgetExpenses"></span>
           </p>
         </div>
         <div class="overflow-x-auto">
@@ -221,39 +312,64 @@
         </div>
       </div>
     </div>
-  </main>
+  </div>
 </div>
 
 <!-- Map Modal -->
-<div id="mapModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
-  <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-full max-h-[85vh] p-4 flex flex-col">
+<div
+  id="mapModal"
+  class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden"
+>
+  <div
+    class="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-full max-h-[85vh] p-4 flex flex-col"
+  >
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-xl font-bold">Carte Détaillée du Trajet</h2>
-      <button id="closeMapModal" class="text-stone-500 hover:text-stone-800 text-3xl font-light">
+      <button
+        id="closeMapModal"
+        class="text-stone-500 hover:text-stone-800 text-3xl font-light"
+      >
         &times;
       </button>
     </div>
-    <div class="flex-grow w-full h-full border rounded-lg bg-stone-100 relative">
+    <div
+      class="flex-grow w-full h-full border rounded-lg bg-stone-100 relative"
+    >
       <div id="leafletModalMap" class="w-full h-full rounded-lg z-0"></div>
     </div>
   </div>
 </div>
 
 <!-- Generic Form Modal (for Add/Edit) -->
-<div id="formModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+<div
+  id="formModal"
+  class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden"
+>
   <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 flex flex-col">
     <div class="flex justify-between items-center mb-4">
       <h2 class="text-xl font-bold" id="formModalTitle"></h2>
-      <button id="closeFormModal" class="text-stone-500 hover:text-stone-800 text-3xl font-light">
+      <button
+        id="closeFormModal"
+        class="text-stone-500 hover:text-stone-800 text-3xl font-light"
+      >
         &times;
       </button>
     </div>
     <form id="dynamicForm" class="space-y-4"></form>
     <div class="mt-6 flex justify-end space-x-4">
-      <button type="button" id="cancelFormBtn" class="bg-stone-300 text-stone-800 font-semibold py-2 px-4 rounded-lg hover:bg-stone-400 transition-colors">
+      <button
+        type="button"
+        id="cancelFormBtn"
+        class="bg-stone-300 text-stone-800 font-semibold py-2 px-4 rounded-lg hover:bg-stone-400 transition-colors"
+      >
         Annuler
       </button>
-      <button type="submit" form="dynamicForm" id="submitFormBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+      <button
+        type="submit"
+        form="dynamicForm"
+        id="submitFormBtn"
+        class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+      >
         Sauvegarder
       </button>
     </div>

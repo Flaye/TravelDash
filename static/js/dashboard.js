@@ -103,6 +103,14 @@ const dynamicForm = document.getElementById("dynamicForm");
 const closeFormModalBtn = document.getElementById("closeFormModal");
 const cancelFormBtn = document.getElementById("cancelFormBtn");
 const submitFormBtn = document.getElementById("submitFormBtn");
+const actionMessageDiv = document.getElementById("actionMessage"); // New: Get reference to the action message div
+
+// New DOM elements for trip list and detail views
+const tripListView = document.getElementById("tripListView");
+const tripDetailView = document.getElementById("tripDetailView");
+const tripCardsContainer = document.getElementById("tripCardsContainer");
+const noTripsMessage = document.getElementById("noTripsMessage");
+const backToTripListBtn = document.getElementById("backToTripListBtn");
 
 /**
  * Navigates to a specific tab and closes the map modal.
@@ -267,6 +275,9 @@ function showFormModal(title, category, item = null) {
   currentItemId = item ? item.id : null;
   dynamicForm.innerHTML = ""; // Clear previous form fields
 
+  // Determine the default date to use for new entries
+  const defaultDate = tripData.startDate || "";
+
   let fields = [];
   if (category === "hotels") {
     fields = [
@@ -294,13 +305,13 @@ function showFormModal(title, category, item = null) {
         name: "checkInDate",
         label: "Date d'arrivée",
         type: "date",
-        value: item ? item.checkInDate : "",
+        value: item ? item.checkInDate : defaultDate,
       },
       {
         name: "checkOutDate",
         label: "Date de départ",
         type: "date",
-        value: item ? item.checkOutDate : "",
+        value: item ? item.checkOutDate : defaultDate,
       },
       {
         name: "pricePerNight",
@@ -344,13 +355,13 @@ function showFormModal(title, category, item = null) {
         name: "dep",
         label: "Date et heure de départ",
         type: "datetime-local",
-        value: item ? item.dep : "",
+        value: item ? item.dep : defaultDate ? `${defaultDate}T09:00` : "",
       },
       {
         name: "arr",
         label: "Date et heure d'arrivée",
         type: "datetime-local",
-        value: item ? item.arr : "",
+        value: item ? item.arr : defaultDate ? `${defaultDate}T11:00` : "",
       },
     ];
   } else if (category === "mapPoints") {
@@ -366,13 +377,13 @@ function showFormModal(title, category, item = null) {
         name: "arrivalDate",
         label: "Date d'arrivée",
         type: "date",
-        value: item ? item.arrivalDate : "",
+        value: item ? item.arrivalDate : defaultDate,
       },
       {
         name: "departureDate",
         label: "Date de départ",
         type: "date",
-        value: item ? item.departureDate : "",
+        value: item ? item.departureDate : defaultDate,
       },
       // Hidden fields for lat/lon, populated by geocoding
       { name: "lat", type: "hidden", value: item ? item.lat : "" },
@@ -384,7 +395,7 @@ function showFormModal(title, category, item = null) {
         name: "date",
         label: "Date",
         type: "date",
-        value: item ? item.date : "",
+        value: item ? item.date : defaultDate,
       },
       {
         name: "category",
@@ -413,7 +424,7 @@ function showFormModal(title, category, item = null) {
         name: "date",
         label: "Date",
         type: "date",
-        value: item ? item.date : "",
+        value: item ? item.date : defaultDate,
       },
       {
         name: "description",
@@ -423,6 +434,7 @@ function showFormModal(title, category, item = null) {
       },
     ];
   } else if (category === "newTrip") {
+    // For newTrip, keep values empty as there's no tripData.startDate yet
     fields = [
       { name: "name", label: "Nom du voyage", type: "text", value: "" },
       { name: "startDate", label: "Date de début", type: "date", value: "" },
@@ -586,6 +598,7 @@ function hideFormModal() {
   dynamicForm.innerHTML = "";
   currentCategory = "";
   currentItemId = null;
+  actionMessageDiv.classList.add("hidden"); // Hide any action message when modal closes
 }
 
 // Event listeners for form modal buttons
@@ -706,6 +719,18 @@ async function geocodeCityOnDemand(cityName) {
   }
 }
 
+/**
+ * Shows a temporary message to the user.
+ * @param {string} message - The message to display.
+ */
+function showActionMessage(message) {
+  actionMessageDiv.textContent = message;
+  actionMessageDiv.classList.remove("hidden");
+  setTimeout(() => {
+    actionMessageDiv.classList.add("hidden");
+  }, 3000); // Hide after 3 seconds
+}
+
 // Event listener for form submission
 dynamicForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -717,28 +742,31 @@ dynamicForm.addEventListener("submit", async (e) => {
 
   // Special handling for mapPoints: ensure lat/lon are populated
   if (currentCategory === "mapPoints") {
+    const cityNameInput = dynamicForm.querySelector("#name"); // The city name input
     const latInput = dynamicForm.querySelector("#lat");
     const lonInput = dynamicForm.querySelector("#lon");
 
-    // If lat/lon are not already set (e.g., from blur/change event or if user typed quickly)
+    // If lat/lon are not already set, try to geocode now
     if (!latInput.value || !lonInput.value) {
-      const geocoded = await geocodeCityOnDemand(itemData.name);
+      const geocoded = await geocodeCityOnDemand(cityNameInput.value);
       if (!geocoded) {
-        alert(
-          "Impossible de trouver les coordonnées pour la ville. Veuillez réessayer."
+        console.error("Submission blocked: Geocoding failed for map point.");
+        showActionMessage(
+          "Impossible de géocoder la ville. Veuillez vérifier le nom."
         );
         return; // Stop submission if geocoding failed
       }
-      itemData.lat = latInput.value;
-      itemData.lon = lonInput.value;
-    } else {
-      itemData.lat = latInput.value;
-      itemData.lon = lonInput.value;
     }
+    // Always use the latest values from the hidden inputs after potential geocoding
+    itemData.lat = latInput.value;
+    itemData.lon = lonInput.value;
   }
 
   if (currentCategory !== "newTrip" && !tripData.id) {
     console.error("No trip selected. Cannot perform action.");
+    showActionMessage(
+      "Veuillez sélectionner ou créer un voyage d'abord pour effectuer cette action."
+    );
     hideFormModal();
     return;
   }
@@ -775,725 +803,37 @@ dynamicForm.addEventListener("submit", async (e) => {
 
     const result = await response.json();
     console.log("Opération réussie:", result);
+    showActionMessage("Opération réussie !"); // Success message
 
     if (currentCategory === "newTrip") {
       window.location.href = `/dashboard?trip_id=${result.tripId}`;
     } else {
-      await loadCurrentTripData();
+      await window.loadCurrentTripData(); // Call through window object
     }
   } catch (error) {
     console.error("Error saving data:", error);
+    showActionMessage(`Erreur lors de la sauvegarde: ${error.message}`); // Error message
   } finally {
     hideFormModal();
   }
 });
 
-/**
- * Loads the current trip data from the Flask backend and updates the UI.
- */
-async function loadCurrentTripData() {
-  if (!tripData.id) {
-    console.warn("No current trip ID set. Cannot load data.");
-    document.getElementById("mainContent").classList.add("hidden");
-    document.getElementById("tripStatusMessage").textContent =
-      "Veuillez sélectionner ou créer un voyage.";
-    toggleDashboardInteractivity(false); // Disable interactivity
-    return;
-  }
-
-  try {
-    const response = await fetch(`/api/trips/${tripData.id}/all_data`);
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
-    }
-    const data = await response.json();
-
-    // Update local tripData object
-    Object.assign(tripData, data);
-    console.log("Trip data loaded from Flask:", tripData);
-
-    // Update header and status message
-    document.querySelector("h1").textContent = `Mon Voyage : ${tripData.name}`;
-    document.querySelector("header p").textContent = `Du ${
-      tripData.startDate
-    } au ${tripData.endDate} (${calculateDuration(
-      tripData.startDate,
-      tripData.endDate
-    )} jours)`;
-    document.getElementById(
-      "tripStatusMessage"
-    ).textContent = `Voyage chargé: ${tripData.name}`;
-    document.getElementById("mainContent").classList.remove("hidden");
-
-    renderAllSections();
-    toggleDashboardInteractivity(true); // Enable interactivity
-
-    // Re-initialize mini-map if it exists or create it
-    if (miniMap) {
-      destroyLeafletMap(miniMap);
-    }
-    const initialLat =
-      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lat : 41.9028;
-    const initialLon =
-      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
-    miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
-    if (miniMap) miniMap.invalidateSize();
-  } catch (error) {
-    console.error("Error loading trip data from Flask API:", error);
-    tripData.clear();
-    renderAllSections();
-    document.getElementById("mainContent").classList.add("hidden");
-    document.getElementById("tripStatusMessage").textContent =
-      "Erreur lors du chargement du voyage. Veuillez réessayer ou créer un nouveau voyage.";
-    toggleDashboardInteractivity(false); // Disable interactivity on error
-  }
-}
-
-function calculateDuration(startDate, endDate) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffTime = Math.abs(end - start);
-  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-}
-
-/**
- * Initializes a Leaflet map in the given container.
- * @param {string} mapId - The ID of the map container element.
- * @param {number} initialLat - Initial latitude for the map center.
- * @param {number} initialLon - Initial longitude for the map center.
- * @param {number} initialZoom - Initial zoom level for the map.
- * @returns {L.Map} The initialized Leaflet map instance.
- */
-function initializeLeafletMap(mapId, initialLat, initialLon, initialZoom) {
-  const mapContainer = L.DomUtil.get(mapId);
-  if (mapContainer && mapContainer._leaflet_id) {
-    mapContainer._leaflet_id = null;
-    mapContainer.innerHTML = "";
-  }
-
-  const mapInstance = L.map(mapId).setView(
-    [initialLat, initialLon],
-    initialZoom
-  );
-
-  L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
-    attribution: "&copy; OpenStreetMap contributors",
-  }).addTo(mapInstance);
-
-  tripData.mapPoints.forEach((city) => {
-    const hotelLinkHtml =
-      city.hotelName !== "N/A"
-        ? `<div>Hôtel: <span class="font-semibold">${city.hotelName}</span></div>
-            <a href="#" class="text-blue-600 hover:text-blue-800 underline" onclick="navigateAndCloseModal('hotels');">Voir hôtels</a>`
-        : "";
-
-    const popupContent = `
-            <div class="font-bold text-base mb-1">${city.name}</div>
-            <div>Arrivée: <span class="font-semibold">${city.arrivalDate}</span></div>
-            <div>Départ: <span class="font-semibold">${city.departureDate}</span></div>
-            ${hotelLinkHtml}
-        `;
-    // Ensure lat and lon exist before adding marker
-    if (city.lat && city.lon) {
-      L.marker([city.lat, city.lon]).addTo(mapInstance).bindPopup(popupContent);
-    } else {
-      console.warn(
-        `Map point "${city.name}" missing lat/lon, cannot add marker.`
-      );
-    }
-  });
-
-  // Note: tripData.routes is currently static. If routes are dynamic,
-  // they would need to be fetched or generated based on mapPoints.
-  // For now, this part remains as a placeholder or requires manual route data.
-  tripData.routes.forEach((routeInfo) => {
-    const fromCity = tripData.mapPoints.find((p) => p.name === routeInfo.from);
-    const toCity = tripData.mapPoints.find((p) => p.name === routeInfo.to);
-
-    if (
-      fromCity &&
-      toCity &&
-      fromCity.lat &&
-      fromCity.lon &&
-      toCity.lat &&
-      toCity.lon
-    ) {
-      const polyline = L.polyline(
-        [
-          [fromCity.lat, fromCity.lon],
-          [toCity.lat, toCity.lon],
-        ],
-        { color: "blue" }
-      ).addTo(mapInstance);
-
-      let googleMapsLinkHtml = "";
-      // Find transport by ID
-      const transport = tripData.transports.find(
-        (t) => t.id === routeInfo.transportId
-      );
-      if (
-        transport &&
-        (transport.type === "Train" || transport.type === "Voiture")
-      ) {
-        googleMapsLinkHtml = `<div><a href="${routeInfo.googleMapsLink}" target="_blank" class="text-blue-600 hover:text-blue-800 underline" onclick="closeMapModalAndOpenLink('${routeInfo.googleMapsLink}');">Voir sur Google Maps</a></div>`;
-      }
-
-      const popupContent = `
-                <div class="font-bold text-base mb-1">${routeInfo.from} → ${
-        routeInfo.to
-      }</div>
-                <div>Type: <span class="font-semibold">${
-                  transport ? transport.type : "N/A"
-                }</span></div>
-                <div>Durée: <span class="font-semibold">${
-                  routeInfo.duration
-                }</span></div>
-                <div>Distance: <span class="font-semibold">${
-                  routeInfo.distance
-                }</span></div>
-                ${googleMapsLinkHtml}
-                <a href="#" class="text-blue-600 hover:text-blue-800 underline" onclick="navigateAndCloseModal('transports');">Voir transports</a>
-            `;
-      polyline.bindPopup(popupContent);
-    } else {
-      console.warn(
-        `Route from ${routeInfo.from} to ${routeInfo.to} missing coordinates for one or both cities.`
-      );
-    }
-  });
-
-  return mapInstance;
-}
-
-/**
- * Destroys a given Leaflet map instance.
- * @param {L.Map} mapInstance - The Leaflet map instance to destroy.
- */
-function destroyLeafletMap(mapInstance) {
-  if (mapInstance) {
-    mapInstance.remove();
-    mapInstance = null;
-  }
-}
-
-/**
- * Sets up the tab navigation functionality.
- */
-function setupTabs() {
-  const tabButtons = document.querySelectorAll(".tab-button");
-  const tabContents = document.querySelectorAll(".tab-content");
-
-  tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const tab = button.dataset.tab;
-
-      tabButtons.forEach((btn) => {
-        btn.classList.remove("nav-active");
-        btn.classList.add("nav-inactive");
-      });
-      button.classList.add("nav-active");
-      button.classList.remove("nav-inactive");
-
-      tabContents.forEach((content) => {
-        if (content.id === `${tab}-content`) {
-          content.classList.remove("hidden");
-        } else {
-          content.classList.add("hidden");
-        }
-      });
-    });
-  });
-}
-
-let costChartInstance = null;
-
-/**
- * Renders or updates the cost distribution donut chart.
- */
-function renderCostChart() {
-  const ctx = document.getElementById("costChart").getContext("2d");
-  const centerTextElement = document.getElementById("costChartCenterText");
-  const totalCostDiv = centerTextElement.querySelector(".text-xl");
-  const labelDiv = centerTextElement.querySelector(".text-sm");
-  const totalEstimatedCostSpan = document.getElementById("totalEstimatedCost");
-  const totalSpentExpensesSpan = document.getElementById("totalSpentExpenses");
-  const totalBudgetExpensesSpan = document.getElementById(
-    "totalBudgetExpenses"
-  );
-
-  const aggregatedCosts = {};
-  tripData.expenseCategories.forEach((cat) => {
-    aggregatedCosts[cat] = 0;
-  });
-  if (!aggregatedCosts["Hébergement"]) aggregatedCosts["Hébergement"] = 0;
-  if (!aggregatedCosts["Transport"]) aggregatedCosts["Transport"] = 0;
-  if (!aggregatedCosts["Activités"]) aggregatedCosts["Activités"] = 0;
-
-  tripData.hotels.forEach((hotel) => {
-    aggregatedCosts["Hébergement"] += parseFloat(hotel.totalPrice || 0);
-  });
-
-  tripData.transports.forEach((transport) => {
-    if (transport.type === "Voiture") {
-      aggregatedCosts["Transport"] +=
-        parseFloat(transport.estimationCarburant || 0) +
-        parseFloat(transport.estimationPeage || 0);
-    } else {
-      aggregatedCosts["Transport"] += parseFloat(transport.price || 0);
-    }
-  });
-
-  let totalExpensesAmount = 0;
-  tripData.expenses.forEach((expense) => {
-    const amount = parseFloat(expense.amount || 0);
-    totalExpensesAmount += amount;
-    if (aggregatedCosts[expense.category] !== undefined) {
-      aggregatedCosts[expense.category] += amount;
-    } else {
-      aggregatedCosts[expense.category] =
-        (aggregatedCosts[expense.category] || 0) + amount;
-    }
-  });
-
-  const dynamicCostCategories = Object.keys(aggregatedCosts)
-    .filter((category) => aggregatedCosts[category] > 0)
-    .map((category) => ({
-      label: category,
-      amount: aggregatedCosts[category],
-    }));
-
-  const newTotal = dynamicCostCategories.reduce(
-    (sum, cat) => sum + cat.amount,
-    0
-  );
-  tripData.costs.total = newTotal;
-
-  totalCostDiv.textContent = `${tripData.costs.total.toFixed(0)} €`;
-  labelDiv.textContent = "Coût Total";
-  totalEstimatedCostSpan.textContent = `${tripData.costs.total.toFixed(0)} €`;
-
-  totalSpentExpensesSpan.textContent = `${totalExpensesAmount.toFixed(0)} €`;
-  totalBudgetExpensesSpan.textContent = `${tripData.costs.total.toFixed(0)} €`;
-
-  const chartData = {
-    labels: dynamicCostCategories.map((cat) => cat.label),
-    datasets: [
-      {
-        data: dynamicCostCategories.map((cat) => cat.amount),
-        backgroundColor: [
-          "#3b82f6",
-          "#16a34a",
-          "#f97316",
-          "#ef4444",
-          "#6b7280",
-          "#8b5cf6",
-          "#ec4899",
-        ],
-        borderColor: "#ffffff",
-        borderWidth: 4,
-        hoverBorderColor: "#f3f4f6",
-      },
-    ],
-  };
-
-  if (costChartInstance) {
-    costChartInstance.data = chartData;
-    costChartInstance.update();
-  } else {
-    costChartInstance = new Chart(ctx, {
-      type: "doughnut",
-      data: chartData,
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: "70%",
-        plugins: {
-          legend: {
-            display: false,
-          },
-          tooltip: {
-            enabled: false,
-            external: function (context) {
-              const tooltipModel = context.tooltip;
-              if (tooltipModel.opacity === 0) {
-                totalCostDiv.textContent = `${tripData.costs.total.toFixed(
-                  0
-                )} €`;
-                labelDiv.textContent = "Coût Total";
-                return;
-              }
-
-              if (tooltipModel.dataPoints.length > 0) {
-                const dataPoint = tooltipModel.dataPoints[0];
-                const label = dynamicCostCategories[dataPoint.dataIndex].label;
-                const value = dynamicCostCategories[dataPoint.dataIndex].amount;
-                totalCostDiv.textContent = `${value.toFixed(0)} €`;
-                labelDiv.textContent = label;
-              }
-            },
-          },
-        },
-      },
-    });
-  }
-}
-
-/**
- * Renders the weather forecast carousel.
- */
-function renderWeather() {
-  const container = document.getElementById("weather-carousel-container");
-  if (!container) return;
-  let html = "";
-  if (tripData.weather && tripData.weather.length > 0) {
-    tripData.weather.forEach((w) => {
-      html += `
-                <div class="flex-shrink-0 text-center p-4 border rounded-lg bg-stone-50 w-36">
-                    <div class="font-semibold text-sm">${w.day}</div>
-                    <div class="text-4xl my-2">${w.icon}</div>
-                    <div class="font-bold text-sm">${w.temp}</div>
-                    <div class="text-xs text-stone-500">${w.condition}</div>
-                </div>
-            `;
-    });
-  } else {
-    html = '<p class="text-stone-500">Aucune donnée météo disponible.</p>';
-  }
-  container.innerHTML = html;
-}
-
-/**
- * Sets up navigation for the weather carousel.
- */
-function setupWeatherNavigation() {
-  const carousel = document.getElementById("weather-carousel-container");
-  const prevBtn = document.getElementById("weather-prev");
-  const nextBtn = document.getElementById("weather-next");
-
-  if (!carousel || !prevBtn || !nextBtn) return;
-
-  const scrollAmount = 160;
-
-  prevBtn.addEventListener("click", () => {
-    carousel.scrollBy({ left: -scrollAmount, behavior: "smooth" });
-  });
-
-  nextBtn.addEventListener("click", () => {
-    carousel.scrollBy({ left: scrollAmount, behavior: "smooth" });
-  });
-}
-
-/**
- * Renders the main itinerary list on the overview tab.
- */
-function renderItinerary() {
-  const list = document.getElementById("itinerary-list");
-  if (!list) return;
-  let html = "";
-  if (tripData.itinerary && tripData.itinerary.length > 0) {
-    tripData.itinerary.forEach((item) => {
-      html += `
-                <li class="flex items-start justify-between py-2 border-b border-stone-100 last:border-b-0">
-                   <div class="flex items-start">
-                     <span class="bg-blue-100 text-blue-800 text-xs font-semibold mr-3 px-2.5 py-1 rounded-full">${item.date}</span>
-                     <span>${item.description}</span>
-                   </div>
-                   <div class="flex space-x-2">
-                       <button data-id="${item.id}" data-category="itinerary" class="edit-btn text-blue-500 hover:text-blue-700 p-1 rounded-full">
-                           <i class="fas fa-edit"></i>
-                       </button>
-                       <button data-id="${item.id}" data-category="itinerary" class="delete-btn text-red-500 hover:text-red-700 p-1 rounded-full">
-                           <i class="fas fa-trash-alt"></i>
-                       </button>
-                   </div>
-                </li>
-            `;
-    });
-  } else {
-    html = '<p class="text-stone-500">Aucun itinéraire principal défini.</p>';
-  }
-  list.innerHTML = html;
-}
-
-/**
- * Renders the list of hotels.
- */
-function renderHotels() {
-  const list = document.getElementById("hotels-list");
-  if (!list) return;
-  let html = "";
-  if (tripData.hotels && tripData.hotels.length > 0) {
-    tripData.hotels.forEach((h) => {
-      let starsHtml = "";
-      for (let i = 0; i < 5; i++) {
-        starsHtml += `<span class="text-yellow-400">${
-          i < h.stars ? "★" : "☆"
-        }</span>`;
-      }
-
-      const checkIn = new Date(h.checkInDate);
-      const checkOut = new Date(h.checkOutDate);
-      const diffTime = Math.abs(checkOut - checkIn);
-      const numberOfNights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-      html += `
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <h3 class="text-lg font-bold">${h.name}</h3>
-                            <p class="text-sm text-stone-500">${h.address}</p>
-                        </div>
-                        <div class="text-lg">${starsHtml}</div>
-                    </div>
-                    <div class="mt-4 grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                        <div><p class="font-semibold">Arrivée</p><p>${
-                          h.checkInDate
-                        }</p></div>
-                        <div><p class="font-semibold">Départ</p><p>${
-                          h.checkOutDate
-                        }</p></div>
-                        <div><p class="font-semibold">Nuits</p><p>${numberOfNights}</p></div>
-                        <div><p class="font-semibold">Prix / nuit</p><p>${
-                          h.pricePerNight
-                        } €</p></div>
-                        <div><p class="font-semibold">Prix total</p><p>${
-                          h.totalPrice
-                        } €</p></div>
-                        <div class="col-span-2 md:col-span-1"><p class="font-semibold">Infos</p><p>${
-                          h.info
-                        }</p></div>
-                        ${
-                          h.bookingUrl
-                            ? `<div><p class="font-semibold">Réservation</p><p><a href="${h.bookingUrl}" target="_blank" class="text-blue-600 hover:underline">Lien Booking</a></p></div>`
-                            : ""
-                        }
-                    </div>
-                    <div class="mt-4 flex justify-end space-x-2">
-                        <button data-id="${
-                          h.id
-                        }" data-category="hotels" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600">Modifier</button>
-                        <button data-id="${
-                          h.id
-                        }" data-category="hotels" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
-                    </div>
-                </div>
-            `;
-    });
-  } else {
-    html =
-      '<p class="text-stone-500">Aucun hôtel enregistré pour ce voyage.</p>';
-  }
-  list.innerHTML = html;
-}
-
-/**
- * Renders the list of transports.
- */
-function renderTransports() {
-  const list = document.getElementById("transports-list");
-  if (!list) return;
-  const iconMap = { Avion: "✈️", Train: "🚆", Voiture: "🚗" };
-  let html = "";
-  if (tripData.transports && tripData.transports.length > 0) {
-    tripData.transports.forEach((t) => {
-      let specificDetails = "";
-      if (t.type === "Avion" || t.type === "Train") {
-        specificDetails = `
-                    <div><p class="font-semibold">Compagnie</p><p>${
-                      t.company || "N/A"
-                    }</p></div>
-                    <div><p class="font-semibold">Numéro</p><p>${
-                      t.number || "N/A"
-                    }</p></div>
-                    <div><p class="font-semibold">Siège</p><p>${
-                      t.seat || "N/A"
-                    }</p></div>
-                    <div><p class="font-semibold">Prix</p><p>${
-                      t.price ? t.price + " €" : "N/A"
-                    }</p></div>
-                `;
-      } else if (t.type === "Voiture") {
-        specificDetails = `
-                    <div><p class="font-semibold">Carburant estimé</p><p>${
-                      t.estimationCarburant
-                        ? t.estimationCarburant + " €"
-                        : "N/A"
-                    }</p></div>
-                    <div><p class="font-semibold">Péage estimé</p><p>${
-                      t.estimationPeage ? t.estimationPeage + " €" : "N/A"
-                    }</p></div>
-                    ${
-                      t.price
-                        ? `<div><p class="font-semibold">Coût total estimé</p><p>${t.price} €</p></div>`
-                        : ""
-                    }
-                `;
-      }
-
-      html += `
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
-                    <div class="flex items-center mb-4">
-                        <span class="text-2xl mr-4">${iconMap[t.type]}</span>
-                        <div>
-                            <h3 class="font-bold">${t.type}: ${t.from} → ${
-        t.to
-      }</h3>
-                            <p class="text-sm text-stone-600">Départ: ${t.dep.replace(
-                              "T",
-                              " "
-                            )} | Arrivée: ${t.arr.replace("T", " ")}</p>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        ${specificDetails}
-                    </div>
-                    <div class="mt-4 flex justify-end space-x-2">
-                        <button data-id="${
-                          t.id
-                        }" data-category="transports" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600">Modifier</button>
-                        <button data-id="${
-                          t.id
-                        }" data-category="transports" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
-                    </div>
-                </div>
-            `;
-    });
-  } else {
-    html =
-      '<p class="text-stone-500">Aucun transport enregistré pour ce voyage.</p>';
-  }
-  list.innerHTML = html;
-}
-
-/**
- * Renders the list of itinerary points (cities).
- */
-function renderItineraries() {
-  const list = document.getElementById("itineraries-list");
-  if (!list) return;
-  let html = "";
-  if (tripData.mapPoints && tripData.mapPoints.length > 0) {
-    tripData.mapPoints.forEach((p) => {
-      html += `
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-200">
-                    <h3 class="text-lg font-bold">${p.name}</h3>
-                    <p class="text-sm text-stone-500">Arrivée: ${
-                      p.arrivalDate
-                    }</p>
-                    <p class="text-sm text-stone-500">Départ: ${
-                      p.departureDate
-                    }</p>
-                    <p class="text-sm text-stone-500">Lat: ${
-                      p.lat ? parseFloat(p.lat).toFixed(4) : "N/A"
-                    }, Lon: ${p.lon ? parseFloat(p.lon).toFixed(4) : "N/A"}</p>
-                    <div class="mt-4 flex justify-end space-x-2">
-                        <button data-id="${
-                          p.id
-                        }" data-category="mapPoints" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600">Modifier</button>
-                        <button data-id="${
-                          p.id
-                        }" data-category="mapPoints" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
-                    </div>
-                </div>
-            `;
-    });
-  } else {
-    html =
-      '<p class="text-stone-500">Aucun point d\'itinéraire enregistré pour ce voyage.</p>';
-  }
-  list.innerHTML = html;
-}
-
-/**
- * Renders the list of expenses in a table.
- */
-function renderExpenses() {
-  const tableBody = document.getElementById("expenses-table-body");
-  if (!tableBody) return;
-  let html = "";
-  let currentTotalSpent = 0;
-  if (tripData.expenses && tripData.expenses.length > 0) {
-    tripData.expenses.forEach((e) => {
-      currentTotalSpent += parseFloat(e.amount || 0);
-      html += `
-                <tr class="bg-white border-b">
-                    <td class="px-6 py-4">${e.date}</td>
-                    <td class="px-6 py-4"><span class="bg-stone-100 text-stone-800 text-xs font-medium px-2.5 py-0.5 rounded">${e.category}</span></td>
-                    <td class="px-6 py-4">${e.desc}</td>
-                    <td class="px-6 py-4 font-medium">${e.amount} €</td>
-                    <td class="px-6 py-4 text-right">
-                        <button data-id="${e.id}" data-category="expenses" class="edit-btn bg-blue-500 text-white text-xs px-3 py-1 rounded-full hover:bg-blue-600 mr-2">Modifier</button>
-                        <button data-id="${e.id}" data-category="expenses" class="delete-btn bg-red-500 text-white text-xs px-3 py-1 rounded-full hover:bg-red-600">Supprimer</button>
-                    </td>
-                </tr>
-            `;
-    });
-  } else {
-    html = `<tr><td colspan="5" class="px-6 py-4 text-center text-stone-500">Aucune dépense enregistrée pour ce voyage.</td></tr>`;
-  }
-  tableBody.innerHTML = html;
-
-  document.getElementById(
-    "totalSpentExpenses"
-  ).textContent = `${currentTotalSpent.toFixed(0)} €`;
-}
-
-/**
- * Renders all sections of the dashboard.
- */
-function renderAllSections() {
-  renderCostChart();
-  renderWeather();
-  setupWeatherNavigation();
-  renderItinerary();
-  renderHotels();
-  renderTransports();
-  renderItineraries();
-  renderExpenses();
-}
-
-/**
- * Toggles the interactivity of dashboard elements based on whether a trip is loaded.
- * @param {boolean} enable - True to enable, false to disable.
- */
-function toggleDashboardInteractivity(enable) {
-  const mainContent = document.getElementById("mainContent");
-  const tabButtons = document.querySelectorAll(".tab-button");
-  const addButtons = document.querySelectorAll(
+// Delegate event listeners for "Modifier" and "Supprimer" buttons
+document.addEventListener("click", async (e) => {
+  // Check if the clicked element or its parent is an "add" button
+  const clickedAddButton = e.target.closest(
     "#addHotelBtn, #addTransportBtn, #addItineraryBtn, #addExpenseBtn, #addOverviewItineraryBtn, #openMapModal"
   );
 
-  if (enable) {
-    mainContent.classList.remove("pointer-events-none", "opacity-50");
-    tabButtons.forEach((btn) => {
-      btn.classList.remove("pointer-events-none", "opacity-50");
-      btn.removeAttribute("disabled");
-    });
-    addButtons.forEach((btn) => {
-      btn.classList.remove("pointer-events-none", "opacity-50");
-      btn.removeAttribute("disabled");
-    });
-  } else {
-    mainContent.classList.add("pointer-events-none", "opacity-50");
-    tabButtons.forEach((btn) => {
-      btn.classList.add("pointer-events-none", "opacity-50");
-      btn.setAttribute("disabled", "true");
-    });
-    addButtons.forEach((btn) => {
-      btn.classList.add("pointer-events-none", "opacity-50");
-      btn.setAttribute("disabled", "true");
-    });
-  }
-}
-
-// Delegate event listeners for "Modifier" and "Supprimer" buttons
-document.addEventListener("click", async (e) => {
-  if (!tripData.id) {
-    console.error("No trip selected. Cannot perform action.");
+  // If an "add" button was clicked AND no trip is selected, show message and return
+  if (clickedAddButton && !tripData.id) {
+    showActionMessage(
+      "Veuillez sélectionner ou créer un voyage d'abord pour effectuer cette action."
+    );
     return;
   }
 
+  // Existing logic for edit and delete buttons
   if (e.target.closest(".edit-btn")) {
     const btn = e.target.closest(".edit-btn");
     const id = btn.dataset.id;
@@ -1515,6 +855,7 @@ document.addEventListener("click", async (e) => {
       );
     } else {
       console.error("Item not found for editing:", id, category);
+      showActionMessage("Élément non trouvé pour modification.");
     }
   } else if (e.target.closest(".delete-btn")) {
     const btn = e.target.closest(".delete-btn");
@@ -1536,50 +877,32 @@ document.addEventListener("click", async (e) => {
       }
 
       console.log(`Document ${id} deleted from ${category}.`);
-      await loadCurrentTripData();
+      showActionMessage("Élément supprimé avec succès !"); // Success message
+      await window.loadCurrentTripData(); // Call through window object
     } catch (error) {
       console.error(`Error deleting document ${id} from ${category}:`, error);
+      showActionMessage(`Erreur lors de la suppression: ${error.message}`); // Error message
     }
   }
 });
 
-// Add event listeners for "Add" buttons
-document.getElementById("addHotelBtn").addEventListener("click", () => {
-  showFormModal("Ajouter un nouvel hôtel", "hotels");
-});
-document.getElementById("addTransportBtn").addEventListener("click", () => {
-  showFormModal("Ajouter un nouveau transport", "transports");
-});
-document.getElementById("addItineraryBtn").addEventListener("click", () => {
-  showFormModal("Ajouter une nouvelle étape", "mapPoints");
-});
-document.getElementById("addExpenseBtn").addEventListener("click", () => {
-  showFormModal("Ajouter une nouvelle dépense", "expenses");
-});
-document
-  .getElementById("addOverviewItineraryBtn")
-  .addEventListener("click", () => {
-    showFormModal("Ajouter une étape à l'itinéraire principal", "itinerary");
-  });
+// Add event listeners for "Add" buttons (now handled by delegated event listener above)
+// document.getElementById('addHotelBtn').addEventListener('click', () => {
+//     if (!tripData.id) { showActionMessage("Veuillez sélectionner ou créer un voyage d'abord."); return; }
+//     showFormModal('Ajouter un nouvel hôtel', 'hotels');
+// });
+// ... (similar removed listeners)
 
 // New Trip and Trip Selection Listeners
 document.getElementById("createNewTripBtn").addEventListener("click", () => {
   showFormModal("Créer un nouveau voyage", "newTrip");
 });
 
-document.getElementById("tripSelect").addEventListener("change", async (e) => {
-  const selectedTripId = e.target.value;
-  if (selectedTripId) {
-    tripData.id = selectedTripId;
-    await loadCurrentTripData();
-  } else {
-    tripData.clear();
-    renderAllSections();
-    document.getElementById("tripStatusMessage").textContent =
-      "Veuillez sélectionner ou créer un voyage.";
-    document.getElementById("mainContent").classList.add("hidden");
-    toggleDashboardInteractivity(false);
-  }
+// New: Back to trip list button
+backToTripListBtn.addEventListener("click", () => {
+  tripData.clear(); // Clear current trip data
+  showTripListView(); // Show the list of trips
+  renderTripList(); // Re-render the list to ensure it's up-to-date
 });
 
 // Initial load logic when dashboard.html is loaded
@@ -1587,10 +910,9 @@ document.addEventListener("DOMContentLoaded", async function () {
   setupTabs();
   setupWeatherNavigation();
 
-  const mainContentDiv = document.getElementById("mainContent");
-  const initialTripIdFromData = mainContentDiv.dataset.currentTripId;
-  const currentTripDataFromFlask = mainContentDiv.dataset.currentTripData
-    ? JSON.parse(mainContentDiv.dataset.currentTripData)
+  const initialTripIdFromData = tripDetailView.dataset.currentTripId;
+  const currentTripDataFromFlask = tripDetailView.dataset.currentTripData
+    ? JSON.parse(tripDetailView.dataset.currentTripData)
     : null;
 
   if (
@@ -1598,6 +920,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     initialTripIdFromData !== "None" &&
     currentTripDataFromFlask
   ) {
+    // A specific trip was passed from Flask, show its details
     tripData.id = initialTripIdFromData;
     Object.assign(tripData, currentTripDataFromFlask);
     console.log("Initial trip data loaded from Flask context:", tripData);
@@ -1611,7 +934,7 @@ document.addEventListener("DOMContentLoaded", async function () {
     )} jours)`;
 
     renderAllSections();
-    toggleDashboardInteractivity(true);
+    showTripDetailView(); // Show the detail view
 
     if (miniMap) {
       destroyLeafletMap(miniMap);
@@ -1623,17 +946,17 @@ document.addEventListener("DOMContentLoaded", async function () {
     miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
     if (miniMap) miniMap.invalidateSize();
   } else {
+    // No specific trip, show the list of all trips
     tripData.clear();
-    renderAllSections();
-    document.getElementById("mainContent").classList.add("hidden");
-    document.getElementById("tripStatusMessage").textContent =
-      "Aucun voyage trouvé. Créez un nouveau voyage pour commencer.";
-    toggleDashboardInteractivity(false);
+    renderAllSections(); // Clear any previous rendering
+    showTripListView(); // Show the list view
+    await renderTripList(); // Populate the list
   }
 
   // Map modal event listeners
   document.getElementById("openMapModal").addEventListener("click", () => {
-    if (!tripData.id) return;
+    // The check for tripData.id is now handled by the delegated event listener
+    // if (!tripData.id) { showActionMessage("Veuillez sélectionner ou créer un voyage d'abord."); return; }
 
     const modal = document.getElementById("mapModal");
     modal.classList.remove("hidden");
@@ -1670,3 +993,174 @@ document.addEventListener("DOMContentLoaded", async function () {
     }, 100);
   });
 });
+
+// Explicitly define loadCurrentTripData on the window object
+window.loadCurrentTripData = async function (tripId) {
+  if (!tripId) {
+    console.warn("No trip ID provided to loadCurrentTripData.");
+    showActionMessage("Aucun voyage sélectionné.");
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/trips/${tripId}/all_data`);
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
+    }
+    const data = await response.json();
+
+    // Update local tripData object
+    Object.assign(tripData, data);
+    console.log("Trip data loaded from Flask:", tripData);
+
+    // Update header and status message
+    document.querySelector("h1").textContent = `Mon Voyage : ${tripData.name}`;
+    document.querySelector("header p").textContent = `Du ${
+      tripData.startDate
+    } au ${tripData.endDate} (${calculateDuration(
+      tripData.startDate,
+      tripData.endDate
+    )} jours)`;
+    document.getElementById(
+      "tripStatusMessage"
+    ).textContent = `Voyage chargé: ${tripData.name}`;
+
+    renderAllSections();
+    showTripDetailView(); // Show the detail view
+
+    // Re-initialize mini-map if it exists or create it
+    if (miniMap) {
+      destroyLeafletMap(miniMap);
+    }
+    const initialLat =
+      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lat : 41.9028;
+    const initialLon =
+      tripData.mapPoints.length > 0 ? tripData.mapPoints[0].lon : 12.4964;
+    miniMap = initializeLeafletMap("leafletMap", initialLat, initialLon, 5);
+    if (miniMap) miniMap.invalidateSize();
+  } catch (error) {
+    console.error("Error loading trip data from Flask API:", error);
+    tripData.clear();
+    renderAllSections();
+    showTripListView(); // Go back to list view on error
+    document.getElementById("tripStatusMessage").textContent =
+      "Erreur lors du chargement du voyage. Veuillez réessayer ou créer un nouveau voyage.";
+  }
+};
+
+/**
+ * Renders the list of all trips as cards.
+ */
+async function renderTripList() {
+  tripCardsContainer.innerHTML = ""; // Clear existing cards
+  noTripsMessage.classList.add("hidden"); // Hide no trips message by default
+
+  try {
+    const response = await fetch("/api/user_trips_summary");
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || `Erreur HTTP: ${response.status}`);
+    }
+    const trips = await response.json();
+
+    if (trips.length > 0) {
+      trips.forEach((trip) => {
+        const card = document.createElement("div");
+        card.classList.add(
+          "bg-white",
+          "p-6",
+          "rounded-xl",
+          "shadow-md",
+          "border",
+          "border-stone-200",
+          "cursor-pointer",
+          "hover:shadow-lg",
+          "transition-shadow"
+        );
+        card.dataset.tripId = trip.id;
+        card.innerHTML = `
+                    <h3 class="text-xl font-bold text-stone-800 mb-2">${
+                      trip.name
+                    }</h3>
+                    <p class="text-sm text-stone-600 mb-1">Du ${
+                      trip.startDate
+                    } au ${trip.endDate}</p>
+                    <p class="text-sm text-stone-600 mb-1">Participants: N/A</p> <!-- Placeholder for participants -->
+                    <p class="text-lg font-semibold text-blue-700 mt-2">Coût total: ${trip.totalCalculatedCost.toFixed(
+                      0
+                    )} €</p>
+                    <p class="text-sm text-stone-500">Budget: ${trip.totalBudget.toFixed(
+                      0
+                    )} €</p>
+                `;
+        card.addEventListener("click", () => {
+          window.loadCurrentTripData(trip.id);
+        });
+        tripCardsContainer.appendChild(card);
+      });
+      document.getElementById(
+        "tripStatusMessage"
+      ).textContent = `Sélectionnez un voyage ci-dessous ou créez-en un nouveau.`;
+    } else {
+      noTripsMessage.classList.remove("hidden");
+      document.getElementById("tripStatusMessage").textContent =
+        "Aucun voyage trouvé. Créez un nouveau voyage pour commencer.";
+    }
+  } catch (error) {
+    console.error("Error fetching trip list:", error);
+    showActionMessage(
+      `Erreur lors du chargement des voyages: ${error.message}`
+    );
+    noTripsMessage.classList.remove("hidden");
+    document.getElementById("tripStatusMessage").textContent =
+      "Erreur lors du chargement des voyages. Veuillez réessayer.";
+  }
+}
+
+/**
+ * Shows the trip list view and hides the trip detail view.
+ */
+function showTripListView() {
+  tripListView.classList.remove("hidden");
+  tripDetailView.classList.add("hidden");
+  // Disable interaction on trip detail view elements
+  toggleDashboardInteractivity(false);
+}
+
+/**
+ * Shows the trip detail view and hides the trip list view.
+ */
+function showTripDetailView() {
+  tripListView.classList.add("hidden");
+  tripDetailView.classList.remove("hidden");
+  // Enable interaction on trip detail view elements
+  toggleDashboardInteractivity(true);
+}
+
+/**
+ * Toggles the interactivity of dashboard elements based on whether a trip is loaded.
+ * This function now specifically targets elements within the tripDetailView.
+ * @param {boolean} enable - True to enable, false to disable.
+ */
+function toggleDashboardInteractivity(enable) {
+  // Only apply pointer-events and opacity to the tripDetailView content
+  // The tripListView visibility is handled by showTripListView/showTripDetailView
+  const elementsToToggle = tripDetailView.querySelectorAll(
+    ".tab-button, #addHotelBtn, #addTransportBtn, #addItineraryBtn, #addExpenseBtn, #addOverviewItineraryBtn, #openMapModal, #backToTripListBtn"
+  );
+
+  if (enable) {
+    tripDetailView.classList.remove("pointer-events-none", "opacity-50");
+    elementsToToggle.forEach((el) => {
+      el.classList.remove("pointer-events-none", "opacity-50");
+      el.removeAttribute("disabled");
+    });
+  } else {
+    tripDetailView.classList.add("pointer-events-none", "opacity-50");
+    elementsToToggle.forEach((el) => {
+      el.classList.add("pointer-events-none", "opacity-50");
+      el.setAttribute("disabled", "true");
+    });
+  }
+}
