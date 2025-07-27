@@ -967,10 +967,46 @@ document.addEventListener("DOMContentLoaded", async function () {
   setupTabs();
   setupWeatherNavigation();
 
+  const rawTripDataAttribute = tripDetailView.dataset.currentTripData;
+  console.log(
+    "[DOMContentLoaded] Raw data-current-trip-data:",
+    rawTripDataAttribute
+  ); // Log raw attribute value
+
+  let currentTripDataFromFlask = null;
+  // Check if the attribute exists AND is not an empty string AND is not the string 'null'
+  if (
+    rawTripDataAttribute &&
+    rawTripDataAttribute !== "" &&
+    rawTripDataAttribute !== "null"
+  ) {
+    try {
+      currentTripDataFromFlask = JSON.parse(rawTripDataAttribute);
+      console.log(
+        "[DOMContentLoaded] Parsed currentTripDataFromFlask:",
+        currentTripDataFromFlask
+      );
+    } catch (e) {
+      console.error(
+        "[DOMContentLoaded] JSON parsing error for data-current-trip-data:",
+        e
+      );
+      console.error(
+        "[DOMContentLoaded] Malformed string was:",
+        rawTripDataAttribute
+      );
+      // Optionally, show an error message to the user
+      showActionMessage(
+        "Erreur de chargement des données du voyage. Le format est incorrect."
+      );
+    }
+  } else {
+    console.log(
+      "[DOMContentLoaded] No initial trip data from Flask (it was null or empty string)."
+    );
+  }
+
   const initialTripIdFromData = tripDetailView.dataset.currentTripId;
-  const currentTripDataFromFlask = tripDetailView.dataset.currentTripData
-    ? JSON.parse(tripDetailView.dataset.currentTripData)
-    : null;
 
   if (
     initialTripIdFromData &&
