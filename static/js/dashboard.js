@@ -162,6 +162,43 @@ function createFormField(field) {
       option.textContent = optionText;
       input.appendChild(option);
     });
+  } else if (field.name === "stars") {
+    // Special handling for stars
+    const starContainer = document.createElement("div");
+    starContainer.classList.add("flex", "space-x-1", "items-center");
+    starContainer.id = `star-rating-${field.name}`; // Unique ID for the container
+
+    // Hidden input to store the numerical value
+    const hiddenInput = document.createElement("input");
+    hiddenInput.type = "hidden";
+    hiddenInput.id = field.name;
+    hiddenInput.name = field.name;
+    hiddenInput.value = field.value || 0; // Default to 0 if no value
+
+    starContainer.appendChild(hiddenInput); // Add hidden input to the container
+
+    for (let i = 1; i <= 5; i++) {
+      const star = document.createElement("span");
+      star.textContent = "★"; // Unicode star
+      star.classList.add(
+        "cursor-pointer",
+        "text-2xl",
+        "transition-colors",
+        "duration-200"
+      );
+      star.dataset.value = i; // Store the star's numerical value
+
+      star.addEventListener("click", () => {
+        hiddenInput.value = i;
+        updateStarDisplay(starContainer, i);
+      });
+      starContainer.appendChild(star);
+    }
+
+    // Initial display update
+    updateStarDisplay(starContainer, field.value || 0);
+
+    return starContainer; // Return the container for the stars and hidden input
   } else {
     input = document.createElement("input");
     input.type = field.type;
@@ -192,6 +229,21 @@ function createFormField(field) {
     );
   }
   return input;
+}
+
+// Helper function to update star display
+function updateStarDisplay(container, value) {
+  const stars = container.querySelectorAll("span[data-value]");
+  stars.forEach((star) => {
+    const starValue = parseInt(star.dataset.value);
+    if (starValue <= value) {
+      star.classList.remove("text-gray-400");
+      star.classList.add("text-yellow-500");
+    } else {
+      star.classList.remove("text-yellow-500");
+      star.classList.add("text-gray-400");
+    }
+  });
 }
 
 /**
@@ -1402,10 +1454,11 @@ function renderAllSections() {
   updateHeaderInfo();
   renderCostChart();
   renderWeatherCarousel();
-  renderItineraryList();
+  renderOverviewItineraryList(); // Renamed function for overview itinerary
   renderHotelsList();
   renderTransportsList();
   renderExpensesList();
+  renderMapPointsList(); // New function for map points / detailed itinerary
   updateMap();
 }
 
@@ -1591,9 +1644,9 @@ function renderWeatherCarousel() {
 }
 
 /**
- * Renders the main itinerary list.
+ * Renders the main itinerary list (on the Overview tab).
  */
-function renderItineraryList() {
+function renderOverviewItineraryList() {
   const listContainer = document.getElementById("itinerary-list");
   listContainer.innerHTML = ""; // Clear existing content
 
@@ -1636,6 +1689,70 @@ function renderItineraryList() {
             </div>
         `;
     listContainer.appendChild(listItem);
+  });
+}
+
+/**
+ * Renders the detailed itinerary list (map points) on the Itineraries tab.
+ */
+function renderMapPointsList() {
+  const listContainer = document.getElementById("itineraries-list"); // Note the ID: itineraries-list
+  listContainer.innerHTML = ""; // Clear existing content
+
+  if (!tripData.id || tripData.mapPoints.length === 0) {
+    listContainer.innerHTML =
+      '<p class="text-stone-500 text-center">Aucune étape de ville ajoutée.</p>';
+    return;
+  }
+
+  // Sort mapPoints by arrival date
+  const sortedMapPoints = [...tripData.mapPoints].sort(
+    (a, b) => new Date(a.arrivalDate) - new Date(b.arrivalDate)
+  );
+
+  sortedMapPoints.forEach((point) => {
+    const card = document.createElement("div");
+    card.classList.add(
+      "bg-white",
+      "p-6",
+      "rounded-xl",
+      "shadow-sm",
+      "border",
+      "border-stone-200"
+    );
+    card.innerHTML = `
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h3 class="font-bold text-lg text-stone-800">${
+                      point.name
+                    }</h3>
+                    <p class="text-sm text-stone-600">Arrivée: ${formatDate(
+                      point.arrivalDate
+                    )}</p>
+                    <p class="text-sm text-stone-600">Départ: ${formatDate(
+                      point.departureDate
+                    )}</p>
+                    ${
+                      point.lat && point.lon
+                        ? `<p class="text-xs text-stone-500">Lat: ${parseFloat(
+                            point.lat
+                          ).toFixed(2)}, Lon: ${parseFloat(point.lon).toFixed(
+                            2
+                          )}</p>`
+                        : ""
+                    }
+                </div>
+                <div class="flex space-x-2">
+                    <button class="edit-btn text-blue-500 hover:text-blue-700 text-sm" data-id="${
+                      point.id
+                    }" data-category="mapPoints">Modifier</button>
+                    <button class="delete-btn text-red-500 hover:text-red-700 text-sm" data-id="${
+                      point.id
+                    }" data-category="mapPoints">Supprimer</button>
+                </div>
+            </div>
+        `;
+    listContainer.appendChild(card);
   });
 }
 
